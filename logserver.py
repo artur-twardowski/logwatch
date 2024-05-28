@@ -5,6 +5,7 @@ import threading as thrd
 from queue import Queue
 import socket
 import selectors
+import json
 from types import SimpleNamespace
 from time import sleep
 
@@ -73,12 +74,21 @@ class SocketServer:
 
 
 class SubprocessCommunication:
-    def __init__(self, command_line, endpoint_name="Subprocess"):
+    def __init__(self, command_line, endpoint_name, servers):
         self._command_line = command_line
         self._endpoint_name = endpoint_name
         self._stdin_buffer = Queue()
+        self._servers = servers
+        self._worker_thread = None
 
     def run(self):
+        self._worker_thread = thrd.Thread(target=self._worker)
+        self._worker_thread.start()
+
+    def wait(self):
+        self._worker_thread.join()
+
+    def _worker(self):
         proc = sp.Popen(self._command_line,
                         shell=True,
                         stdin=sp.PIPE,
@@ -103,6 +113,7 @@ class SubprocessCommunication:
         for line in stream:
             stdout.write("FD%d: %s\n" % (fd, line.strip()))
             stdout.flush()
+            self._servers.broadcast_data(self._endpoint_name, fd, line.strip())
         print("Receiver thread finished for fd=%d" % fd)
 
     def _sender(self, proc, stream):
@@ -112,6 +123,34 @@ class SubprocessCommunication:
                 stream.write(line)
                 stream.flush()
         print("Sender thread finished")
+
+class ServerManager:
+    def __init__(self):
+        self._servers = []
+
+    def register(self, server):
+        self._servers.append(server)
+
+    def run_all(self):
+        for server in self._servers:
+            server.run()
+
+    def broadcast_data(self, endpoint_name, fd, data):
+        for server in self._servers:
+            server.broadcast(json.dumps({
+                "type": "data",
+                "endpoint": endpoint_name,
+                "fd": fd,
+                "data": data
+            }))
+
+    def broadcast_keepalive(self, seq_no):
+        for server in self._servers:
+            server.broadcast(json.dumps({
+                "type": "keepalive",
+                "seq": seq_no
+            }))
+
 
 class Configuration:
     def __init__(self):
@@ -157,19 +196,21 @@ def read_args(args):
 
 if __name__ == "__main__":
     config = read_args(argv[1:])
+    server_manager = ServerManager()
 
-    sockets = []
     if config.socket is not None:
-        sock = SocketServer(config.socket)
-        sock.run()
-        sockets.append(sock)
+        server_manager.register(SocketServer(config.socket))
 
-    for subproc in config.subprocesses:
-        print("Subprocess ", subproc)
+    server_manager.run_all()
+
+    subprocesses = []
+    for endpoint_name, command in config.subprocesses:
+        subproc = SubprocessCommunication(command, endpoint_name, server_manager)
+        subprocesses.append(subproc)
+        subproc.run()
 
     ix = 0
     while True:
-        for sock in sockets:
-            sock.broadcast("XXX %d" % ix)
-            sleep(1)
-            ix += 1
+        server_manager.broadcast_keepalive(ix)
+        ix += 1
+        sleep(1)
