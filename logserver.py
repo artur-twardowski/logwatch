@@ -9,6 +9,9 @@ import json
 from types import SimpleNamespace
 from time import sleep
 
+def debug(message):
+    pass
+
 class SocketServer:
     def __init__(self, port):
         self._port = port
@@ -36,7 +39,7 @@ class SocketServer:
         if mask & selectors.EVENT_READ:
             recv_data = sock.recv(1024)
             if recv_data:
-                print("Received data: ", recv_data)
+                debug("Received data: %s" % recv_data)
             else:
                 print("Closing connection from %s:%s" % data.addr)
                 self._selector.unregister(sock)
@@ -66,10 +69,10 @@ class SocketServer:
                     self._serve(key.fileobj, key.data, mask)
 
     def broadcast(self, data):
-        print("Broadcasting message %s" % data)
+        debug("Broadcasting message %s" % data)
         for key, conn in self._client_sockets.items():
-            print("... to %s:%s" % key)
-            data_raw = bytes(data, 'utf-8')
+            debug("... to %s:%s" % key)
+            data_raw = bytes(data + "\0", 'utf-8')
             self._selector.get_key(conn).data.outb += data_raw
 
 
@@ -96,8 +99,8 @@ class SubprocessCommunication:
                         stderr=sp.PIPE,
                         universal_newlines=True)
 
-        stdout_thread = thrd.Thread(target=self._receiver, args=(proc.stdout, 1))
-        stderr_thread = thrd.Thread(target=self._receiver, args=(proc.stderr, 2))
+        stdout_thread = thrd.Thread(target=self._receiver, args=(proc.stdout, 'stdout'))
+        stderr_thread = thrd.Thread(target=self._receiver, args=(proc.stderr, 'stderr'))
         stdin_thread = thrd.Thread(target=self._sender, args=(proc, proc.stdin))
 
         stdout_thread.start()
@@ -111,10 +114,8 @@ class SubprocessCommunication:
 
     def _receiver(self, stream, fd):
         for line in stream:
-            stdout.write("FD%d: %s\n" % (fd, line.strip()))
-            stdout.flush()
             self._servers.broadcast_data(self._endpoint_name, fd, line.strip())
-        print("Receiver thread finished for fd=%d" % fd)
+        print("Receiver thread finished for fd=%s" % fd)
 
     def _sender(self, proc, stream):
         while proc.poll() is None:

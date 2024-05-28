@@ -1,6 +1,9 @@
 #!/bin/sh
 
-for x in `seq 0 20`; do
-    echo "Stdout line $x"
-    sleep 0.1
+X=0
+while true; do
+    >&2 echo "Stderr line $X"
+    sleep 0.3
+    ls -la --color
+    X=$(( $X + 1 ))
 done
