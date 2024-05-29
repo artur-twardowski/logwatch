@@ -1,80 +1,13 @@
 #!/usr/bin/python3
 import subprocess as sp
-from sys import argv, stdout
+from sys import argv
 import threading as thrd
 from queue import Queue
-import socket
-import selectors
 import json
-from types import SimpleNamespace
+import yaml
 from time import sleep
-
-def debug(message):
-    pass
-
-class SocketServer:
-    def __init__(self, port):
-        self._port = port
-        self._enabled = True
-        self._selector = selectors.DefaultSelector()
-        self._listen_thread = None
-        self._client_sockets = {}
-
-    def run(self):
-        self._listen_thread = thrd.Thread(target=self._listen_worker)
-        self._listen_thread.start()
-
-    def stop(self):
-        self._enabled = False
-        self._listen_thread.join()
-
-    def _accept(self, client_sock):
-        conn, addr = client_sock.accept()
-        print("Received a connection from %s:%s" % addr)
-        conn.setblocking(False)
-        self._selector.register(conn, selectors.EVENT_READ | selectors.EVENT_WRITE, SimpleNamespace(addr=addr, inb=b'', outb=b''))
-        self._client_sockets[addr] = conn
-
-    def _serve(self, sock, data, mask):
-        if mask & selectors.EVENT_READ:
-            recv_data = sock.recv(1024)
-            if recv_data:
-                debug("Received data: %s" % recv_data)
-            else:
-                print("Closing connection from %s:%s" % data.addr)
-                self._selector.unregister(sock)
-                del self._client_sockets[data.addr]
-                sock.close()
-
-        if mask & selectors.EVENT_WRITE:
-            if data.outb:
-                sent_bytes = sock.send(data.outb)
-                data.outb = data.outb[sent_bytes:]
-
-
-    def _listen_worker(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind( ("127.0.0.1", self._port) )
-        sock.listen()
-        print("Listening on port %d" % self._port)
-        sock.setblocking(False)
-        self._selector.register(sock, selectors.EVENT_READ, data=None)
-
-        while self._enabled:
-            events = self._selector.select(timeout=1)
-            for key, mask in events:
-                if key.data is None:
-                    self._accept(key.fileobj)
-                else:
-                    self._serve(key.fileobj, key.data, mask)
-
-    def broadcast(self, data):
-        debug("Broadcasting message %s" % data)
-        for key, conn in self._client_sockets.items():
-            debug("... to %s:%s" % key)
-            data_raw = bytes(data + "\0", 'utf-8')
-            self._selector.get_key(conn).data.outb += data_raw
-
+from servers import GenericTCPServer
+from utils import pop_args
 
 class SubprocessCommunication:
     def __init__(self, command_line, endpoint_name, servers):
@@ -92,6 +25,7 @@ class SubprocessCommunication:
         self._worker_thread.join()
 
     def _worker(self):
+        print("Endpoint %s: running command: %s" % (self._endpoint_name, self._command_line))
         proc = sp.Popen(self._command_line,
                         shell=True,
                         stdin=sp.PIPE,
@@ -123,6 +57,8 @@ class SubprocessCommunication:
                 line = self._stdin_buffer.get()
                 stream.write(line)
                 stream.flush()
+            else:
+                sleep(0.01)
         print("Sender thread finished")
 
 class ServerManager:
@@ -157,19 +93,30 @@ class Configuration:
     def __init__(self):
         self.subprocesses = []
         self.socket = None
+        self.websocket = None
 
-def pop_args(arg_queue, argument, *names):
-    if arg_queue.qsize() < len(names):
-        if len(names) == 1:
-            print("Option %s requires %s argument" % (argument, names[0]))
-        else:
-            print("Option %s requires %d arguments: %s" % (argument, len(names), ", ".join(names)))
-        exit(1)
+    def read(self, filename):
+        with open(filename, 'r') as file:
+            data = yaml.safe_load(file)
+            if 'server' not in data:
+                print("Configuration file does not have \"server\" section")
+                exit(1)
+            
+            self.socket = data['server'].get('socket-port', None)
+            self.websocket = data['server'].get('websocket-port', None)
 
-    retval = []
-    for _ in names:
-        retval.append(arg_queue.get())
-    return retval
+            for endpoint in data['server'].get('endpoints', []):
+                if 'type' not in endpoint:
+                    print("Endpoint type must be provided")
+                    exit(1)
+                if 'name' not in endpoint:
+                    print("Endpoint name must be provided")
+                    exit(1)
+
+                if endpoint['type'] == 'subprocess':
+                    if 'command' not in endpoint:
+                        print("Subprocess endpoint must have a command specified")
+                    self.subprocesses.append((endpoint['name'], endpoint['command']))
 
 def read_args(args):
     arg_queue = Queue()
@@ -186,6 +133,10 @@ def read_args(args):
         elif arg in ['-S', '--socket']:
             port, = pop_args(arg_queue, arg, "port")
             config.socket = int(port)
+        elif arg in ['-c', '--config']:
+            config_file, = pop_args(arg_queue, arg, "file-name")
+            config.read(config_file)
+
         elif arg in ['--help']:
             print("USAGE: %s [-s | --subprocess <endpoint-name> <command>]*")
         else:
@@ -194,13 +145,19 @@ def read_args(args):
 
     return config
 
+class TCPServer(GenericTCPServer):
+    def __init__(self, port):
+        super().__init__(port)
+
+    def on_data_received(self, addr, data):
+        print("Received data from %s:%s: %s" % (addr[0], addr[1], data))
 
 if __name__ == "__main__":
     config = read_args(argv[1:])
     server_manager = ServerManager()
 
     if config.socket is not None:
-        server_manager.register(SocketServer(config.socket))
+        server_manager.register(TCPServer(config.socket))
 
     server_manager.run_all()
 
