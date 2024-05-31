@@ -23,7 +23,8 @@ class GenericTCPClient:
 
     def _receiver_worker(self):
         while self._enabled:
-            data_recv = self._socket.recv(4096)
+            #TODO: this should be buffered
+            data_recv = self._socket.recv(32768)
 
             if not data_recv:
                 self._enabled = False

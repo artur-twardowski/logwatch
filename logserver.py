@@ -6,6 +6,7 @@ from queue import Queue
 import json
 import yaml
 from time import sleep
+from datetime import datetime
 from servers import GenericTCPServer
 from utils import pop_args
 
@@ -64,6 +65,7 @@ class SubprocessCommunication:
 class ServerManager:
     def __init__(self):
         self._servers = []
+        self._line_seq_no = 0
 
     def register(self, server):
         self._servers.append(server)
@@ -73,13 +75,18 @@ class ServerManager:
             server.run()
 
     def broadcast_data(self, endpoint_name, fd, data):
+        today = datetime.now()
         for server in self._servers:
             server.broadcast(json.dumps({
                 "type": "data",
                 "endpoint": endpoint_name,
                 "fd": fd,
-                "data": data
+                "data": data,
+                "seq": self._line_seq_no,
+                "date": today.strftime("%Y-%m-%d"),
+                "time": today.strftime("%H:%M:%S")
             }))
+        self._line_seq_no += 1
 
     def broadcast_keepalive(self, seq_no):
         for server in self._servers:

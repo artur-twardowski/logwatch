@@ -3,6 +3,7 @@ import selectors
 from types import SimpleNamespace
 import threading as thrd
 from utils import debug
+from time import sleep
 
 class GenericTCPServer:
     def __init__(self, port):
@@ -43,6 +44,7 @@ class GenericTCPServer:
             if data.outb:
                 sent_bytes = sock.send(data.outb)
                 data.outb = data.outb[sent_bytes:]
+                debug("Sent %d bytes, %d bytes remaining" % (sent_bytes, len(data.outb)))
 
     def _listen_worker(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -59,6 +61,7 @@ class GenericTCPServer:
                     self._accept(key.fileobj)
                 else:
                     self._serve(key.fileobj, key.data, mask)
+            sleep(0.01)
 
     def broadcast(self, data):
         debug("Broadcasting message %s" % data)

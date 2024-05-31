@@ -71,9 +71,12 @@ class TCPClient(GenericTCPClient):
         for data_json in data_recv_str.split('\0'):
             if len(data_json) == 0:
                 continue
-            data = json.loads(data_json)
-            if data['type'] == 'data':
-                print(formatter.format_line(self._config.line_format, data))
+            try:
+                data = json.loads(data_json)
+                if data['type'] == 'data':
+                    print(formatter.format_line(self._config.line_format, data))
+            except json.decoder.JSONDecodeError:
+                print("Failed to parse JSON: %s" % data_json)
 
 def read_args(args):
     arg_queue = Queue()
