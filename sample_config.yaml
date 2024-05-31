@@ -1,0 +1,27 @@
+server:
+  socket-port: 2207
+  endpoints:
+    - type: "subprocess"
+      name: "Shell"
+      short-name: "sh"
+      command: "./test1.sh"
+
+views:
+  main:
+    show-endpoints: all
+    formats:
+      - endpoint: "Shell"
+        background-color: red1
+        foreground-color: green7
+    line-format: "{format:endpoint}[{endpoint}] {seq:6} {time}{format:reset} {data}"
+    filtered: false
+
+  filtered:
+    socket-port: 2208
+    line-format: "{format:match}[{endpoint}] {seq:6} {time}{format:reset} {data}"
+    filtered: true
+    formats:
+      - filter: '\.py'
+        background-color: red
+        foreground-color: black
+        enabled: true
