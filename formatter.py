@@ -112,6 +112,29 @@ def ansi_format(bg_color, fg_color):
     else:
         return "48;5;%d;38;5;%d" % (bg_color, fg_color)
 
+def subscript(s):
+    REPLACEMENTS = {
+        '0': '\u2080', '1': '\u2081', '2': '\u2082', '3': '\u2083',
+        '4': '\u2084', '5': '\u2085', '6': '\u2086', '7': '\u2087',
+        '8': '\u2088', '9': '\u2089', '(': '\u208d', ')': '\u208e'
+    }
+    result = s
+
+    for char, replacement in REPLACEMENTS.items():
+        result = result.replace(char, replacement)
+    return result
+
+def superscript(s):
+    REPLACEMENTS = {
+        '0': '\u2070', '1': '\u00b9', '2': '\u00b2', '3': '\u00b3',
+        '4': '\u2074', '5': '\u2075', '6': '\u2076', '7': '\u2077',
+        '8': '\u2078', '9': '\u2079', '(': '\u207d', ')': '\u207e'
+    }
+    result = s
+
+    for char, replacement in REPLACEMENTS.items():
+        result = result.replace(char, replacement)
+    return result
 
 class Formatter:
     FORMATTING_TAG_DELIM = "\x10"
@@ -145,19 +168,27 @@ class Formatter:
 
             elif key in fields:
                 try:
+                    view_value = str(fields[key])
                     if len(param) > 0:
+                        if param[0] == '^':
+                            view_value = superscript(view_value)
+                            param = param[1:]
+                        elif param[0] == "_":
+                            view_value = subscript(view_value)
+                            param = param[1:]
+
                         if param[0] >= '1' and param[0] <= '9':
-                            replacement = "%*s" % (int(param), fields[key])
+                            replacement = "%*s" % (int(param), view_value)
                         elif param[0] == '<' and param[2] >= '1' and param[2] <= '9':
-                            replacement = pad_right(str(fields[key]),
+                            replacement = pad_right(str(view_value),
                                                    param[1],
                                                    int(param[2:]))
                         elif param[0] == '>' and param[2] >= '1' and param[2] <= '9':
-                            replacement = pad_left(str(fields[key]),
+                            replacement = pad_left(str(view_value),
                                                     param[1],
                                                     int(param[2:]))
                     else:
-                        replacement = str(fields[key])
+                        replacement = view_value
                 except IndexError:
                     print("Incorrect formatting parameter: %s" % param)
                     exit(1)
@@ -211,15 +242,15 @@ if __name__ == "__main__":
     formatter = Formatter()
 
     shell_fmt = Format()
-    shell_fmt.foreground_color = {"stdout": 2}
+    shell_fmt.foreground_color = {"stdout": 255}
     shell_fmt.background_color = {"stdout": 23}
     formatter.add_endpoint_format("Shell", shell_fmt)
 
-    print(formatter.format_line("{format:endpoint}[{endpoint}] {seq:>.6} {date} {time} |{format:endpoint} {content}", {
+    print(formatter.format_line("{format:endpoint}[{endpoint}] {seq:_>.6} {date} {time} |{format:endpoint} {content}", {
         "endpoint": "Shell",
         "date": "2023-02-09",
         "time": "22:07:00",
-        "seq": 111,
+        "seq": 24601,
         "fd": "stdout",
         "content": "My content: \x1b[1;31mred \x1b[0mreset \x1b[1;32mgreen \x1b[0mreset"
         }))
