@@ -28,8 +28,14 @@ class Configuration:
 
     def _parse_format_node(self, node):
         fmt = Format()
-        fmt.background_color = resolve_color(node.get('background-color', "none"))
-        fmt.foreground_color = resolve_color(node.get('foreground-color', "white"))
+        for fd, formats in node.items():
+            print(fd, formats)
+            if fd in ["endpoint"]: continue
+            if not isinstance(formats, dict):
+                print("Invalid format of formatting node")
+                exit(1)
+            fmt.background_color[fd] = resolve_color(formats.get('background-color', "none"))
+            fmt.foreground_color[fd] = resolve_color(formats.get('foreground-color', "white"))
         return fmt
 
     def read(self, filename, view_name="main"):
@@ -97,8 +103,8 @@ def read_args(args):
             port_s, = pop_args(arg_queue, arg, "port")
             config.socket = int(port_s)
         elif arg in ['-c', '--config']:
-            config_file, = pop_args(arg_queue, arg, "file-name")
-            config.read(config_file)
+            config_file, view_name = pop_args(arg_queue, arg, "file-name", "view-name")
+            config.read(config_file, view_name)
         else:
             print("Unknown option: %s" % arg)
             exit(1)
@@ -110,6 +116,10 @@ if __name__ == "__main__":
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
         formatter.add_endpoint_format(endpoint_name, endpoint_format)
     client = TCPClient(config, formatter)
-    client.run()
-    sleep(7200)
+    try:
+        client.run()
+        sleep(7200) # TODO: there is definitely a better way to do it
+    except ConnectionRefusedError:
+        print("Could not connect to the server: connection refused")
+        exit(1)
     client.stop()

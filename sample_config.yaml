@@ -11,9 +11,13 @@ views:
     show-endpoints: all
     formats:
       - endpoint: "Shell"
-        background-color: red1
-        foreground-color: green7
-    line-format: "{format:endpoint}[{endpoint}] {seq:6} {time}{format:reset} {data}"
+        stdout:
+          background-color: none
+          foreground-color: white
+        stderr:
+          background-color: red1
+          foreground-color: red8
+    line-format: "{format:endpoint}[{endpoint}] {seq:6} {time} {data}"
     filtered: false
 
   filtered:

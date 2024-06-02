@@ -1,4 +1,5 @@
 import re
+from utils import debug
 
 COLOR_MAP = {
     "red1": 16 + 1*36 + 0*6 + 0,
@@ -85,39 +86,63 @@ def resolve_color(name: str):
             return -1
 
 class Format:
+    DEFAULT_BG_COLOR = resolve_color("none")
+    DEFAULT_FG_COLOR = resolve_color("white")
+
     def __init__(self):
-        self.background_color = 0
-        self.foreground_color = 255
+        self.background_color = {
+            "stdout": self.DEFAULT_BG_COLOR,
+            "stderr": resolve_color("red1"),
+            "stdin": resolve_color("yellow1")
+        }
+        self.foreground_color = {
+                "stdout": self.DEFAULT_FG_COLOR,
+                "stderr": self.DEFAULT_FG_COLOR,
+                "stdin": resolve_color("yellow7")
+        }
+
+    def get(self, fd):
+        bg_color = self.background_color.get(fd, self.DEFAULT_BG_COLOR)
+        fg_color = self.foreground_color.get(fd, self.DEFAULT_FG_COLOR)
+        return bg_color, fg_color
+
+def ansi_format(bg_color, fg_color):
+    if bg_color == -1:
+        return "0;38;5;%d" % fg_color
+    else:
+        return "48;5;%d;38;5;%d" % (bg_color, fg_color)
+
 
 class Formatter:
+    FORMATTING_TAG_DELIM = "\x10"
+    FORMATTING_RESET = "R"
+    FORMATTING_ENDPOINT = "E"
+
     def __init__(self):
         self._re_tag = re.compile(r'(\{([A-Za-z0-9_-]+)(?::([^}]+))?\})')
         self._endpoint_formats = {}
         pass
 
     def add_endpoint_format(self, name, format: Format):
-        print("Adding formatting for endpoint %s: background=%d, foreground=%d" % (
+        debug("Adding formatting for endpoint %s: background=%s, foreground=%s" % (
             name, format.background_color, format.foreground_color))
         self._endpoint_formats[name] = format
 
     def format_line(self, fmt, fields):
         tags = self._re_tag.findall(fmt)
         result = fmt
+
+        # Replace tags with the values or delimiters
         for needle, key, param in tags:
             replacement = needle
+
             if key == 'format':
                 if param == "reset":
-                    replacement = "\x1b[0m"
+                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_RESET + "\x1b[0m"
+
                 elif param == "endpoint":
-                    endpoint_fmt = self._endpoint_formats[fields['endpoint']]
-                    if endpoint_fmt is None:
-                        print("No configuration for endpoint %s" % fields['endpoint'])
-                    if endpoint_fmt.background_color == -1:
-                        replacement = "\x1b[0;38;5;%dm" % endpoint_fmt.foreground_color
-                    else:
-                        replacement = "\x1b[48;5;%d;38;5;%dm" % (
-                                        endpoint_fmt.background_color,
-                                        endpoint_fmt.foreground_color)
+                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_ENDPOINT + "\x1b[0m"
+
             elif key in fields:
                 try:
                     if len(param) > 0:
@@ -138,24 +163,64 @@ class Formatter:
                     exit(1)
 
             result = result.replace(needle, replacement)
+
+        # Process the ANSI codes:
+        #   - replace all the formatting reset messages (ESC[0m) with appropriate formatting
+        #     as configured
+        endpoint_fmt = self._endpoint_formats.get(fields.get('endpoint')).get(fields.get('fd'))
+        reset_fmt = Format.DEFAULT_BG_COLOR, Format.DEFAULT_FG_COLOR
+        default_fmt = reset_fmt
+
+        data_to_format = result
+        result = ""
+        ch_ix = 0
+        while ch_ix < len(data_to_format):
+            if data_to_format[ch_ix] == self.FORMATTING_TAG_DELIM:
+                if data_to_format[ch_ix + 1] == self.FORMATTING_RESET:
+                    default_fmt = reset_fmt
+                elif data_to_format[ch_ix + 1] == self.FORMATTING_ENDPOINT:
+                    default_fmt = endpoint_fmt
+                ch_ix += 2
+                continue
+
+            elif data_to_format[ch_ix] == '\x1b':
+                if data_to_format[ch_ix + 1] == "[": # Formatting tag
+                    tag_end = data_to_format.find('m', ch_ix + 2)
+                    values = data_to_format[ch_ix+2:tag_end].split(';')
+                    new_values = []
+                    for v in values:
+                        if v == "0":
+                            new_values.append("0;" + ansi_format(default_fmt[0], default_fmt[1]))
+                        else:
+                            new_values.append(v)
+                    
+                    result += "\x1b[" + (";".join(new_values)) + "m"
+
+                    ch_ix = tag_end + 1
+                    continue
+
+            result += data_to_format[ch_ix]
+            ch_ix += 1
+
+        # Clear the line till the end, so that the entire line is filled with the appropriate background color
+        result += "\x1b[K\x1b[0m"
+
         return result
 
 if __name__ == "__main__":
     formatter = Formatter()
 
     shell_fmt = Format()
-    shell_fmt.foreground_color = 2
-    shell_fmt.background_color = 23
+    shell_fmt.foreground_color = {"stdout": 2}
+    shell_fmt.background_color = {"stdout": 23}
     formatter.add_endpoint_format("Shell", shell_fmt)
 
-    print(formatter.format_line("{format:endpoint}[{endpoint}] {seq:>.6} {date} {time} |{format:reset} {content}", {
+    print(formatter.format_line("{format:endpoint}[{endpoint}] {seq:>.6} {date} {time} |{format:endpoint} {content}", {
         "endpoint": "Shell",
         "date": "2023-02-09",
         "time": "22:07:00",
         "seq": 111,
-        "content": "My content \x1b[1;31mwith colors\x1b[0m"
+        "fd": "stdout",
+        "content": "My content: \x1b[1;31mred \x1b[0mreset \x1b[1;32mgreen \x1b[0mreset"
         }))
-
-    for color, k in COLOR_MAP.items():
-        print("\x1b[38;5;%dm%s\x1b[0m" % (k, color))
 
