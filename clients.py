@@ -2,6 +2,7 @@ import socket
 import threading as thrd
 
 class GenericTCPClient:
+    RECV_SIZE = 1024
     def __init__(self, host, port):
         self._host = host
         self._port = port
@@ -23,8 +24,7 @@ class GenericTCPClient:
 
     def _receiver_worker(self):
         while self._enabled:
-            #TODO: this should be buffered
-            data_recv = self._socket.recv(32768)
+            data_recv = self._socket.recv(self.RECV_SIZE)
 
             if not data_recv:
                 self._enabled = False

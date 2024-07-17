@@ -70,19 +70,24 @@ class TCPClient(GenericTCPClient):
         super().__init__(config.host, config.port)
         self._config = config
         self._formatter = formatter
+        self._recv_buffer = bytearray()
 
     def on_data_received(self, recv_data):
-        data_recv_str = str(recv_data, 'utf-8')
+        for byte in recv_data:
+            if byte == 0:
+                data_recv_str = str(self._recv_buffer, 'utf-8')
 
-        for data_json in data_recv_str.split('\0'):
-            if len(data_json) == 0:
-                continue
-            try:
-                data = json.loads(data_json)
-                if data['type'] == 'data':
-                    print(formatter.format_line(self._config.line_format, data))
-            except json.decoder.JSONDecodeError:
-                print("Failed to parse JSON: %s" % data_json)
+                if len(data_recv_str) > 0:
+                    try:
+                        data = json.loads(data_recv_str)
+                        if data['type'] == 'data':
+                            print(formatter.format_line(self._config.line_format, data))
+                    except json.decoder.JSONDecodeError as err:
+                        print("Failed to parse JSON: %s: %s" % (err, data_recv_str))
+
+                self._recv_buffer.clear()
+            else:
+                self._recv_buffer.append(byte)
 
 def read_args(args):
     arg_queue = Queue()
