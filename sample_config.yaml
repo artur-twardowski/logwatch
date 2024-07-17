@@ -4,7 +4,15 @@ server:
     - type: "subprocess"
       name: "dmesg"
       short-name: "sh"
-      command: "sudo dmesg -w"
+      command: "./test1.sh"
+
+      commands:
+        0:
+          command: "./test1.sh"
+          auto-run: false
+        1:
+          command: "./test2.sh"
+          auto-run: false
 
 views:
   main:

@@ -33,7 +33,10 @@ class GenericTCPClient:
             self.on_data_received(data_recv)
 
     def send(self, data):
-        self._socket.sendall(data)
+        if isinstance(data, str):
+            self._socket.sendall(bytes(data + '\0', 'utf-8'))
+        else:
+            self._socket.sendall(data)
 
     def on_data_received(self, data):
         pass

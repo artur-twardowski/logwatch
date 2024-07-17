@@ -115,10 +115,11 @@ if __name__ == "__main__":
     formatter = Formatter()
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
         formatter.add_endpoint_format(endpoint_name, endpoint_format)
-    client = TCPClient(config, formatter)
     try:
+        client = TCPClient(config, formatter)
         client.run()
-        sleep(7200) # TODO: there is definitely a better way to do it
+        while True:
+            sleep(1)
     except ConnectionRefusedError:
         print("Could not connect to the server: connection refused")
         exit(1)
