@@ -17,6 +17,9 @@ COLORS={
 }
 
 class Configuration:
+    DEFAULT_LINE_FORMAT="{format:endpoint}{endpoint:8} {seq:6} {time} {data}"
+    DEFAULT_MARKER_FORMAT="{format:endpoint}>>>>>>>> MARKER {time} {name}"
+
     def __init__(self):
         self.host = "127.0.0.1"
         self.port = 2207
@@ -61,9 +64,8 @@ class Configuration:
             self.socket = view_data.get('socket-port', None)
             self.websocket = view_data.get('websocket-port', None)
 
-            #TODO: define default formats for both
-            self.line_format = view_data.get('line-format', None) 
-            self.marker_format = view_data.get('marker-format', None)
+            self.line_format = view_data.get('line-format', self.DEFAULT_LINE_FORMAT) 
+            self.marker_format = view_data.get('marker-format', self.DEFAULT_MARKER_FORMAT)
 
             for format in view_data.get('formats', []):
                 if 'endpoint' in format:
