@@ -7,10 +7,10 @@ server:
       command: "./test1.sh"
 
       commands:
-        0:
+        test1:
           command: "./test1.sh"
           auto-run: false
-        1:
+        test2:
           command: "./test2.sh"
           auto-run: false
 
