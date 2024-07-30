@@ -2,8 +2,9 @@ import socket
 import selectors
 from types import SimpleNamespace
 import threading as thrd
-from utils import debug
+from utils import debug, info, error
 from time import sleep
+
 
 class GenericTCPServer:
     def __init__(self, port):
@@ -23,7 +24,7 @@ class GenericTCPServer:
 
     def _accept(self, client_sock):
         conn, addr = client_sock.accept()
-        print("Received a connection from %s:%s" % addr)
+        info("Received a connection from %s:%s" % addr)
         conn.setblocking(False)
         self._selector.register(conn, selectors.EVENT_READ | selectors.EVENT_WRITE, SimpleNamespace(addr=addr, inb=b'', outb=b''))
         self._clients[addr] = conn
@@ -39,11 +40,10 @@ class GenericTCPServer:
                 debug("Received data: %s" % recv_data)
                 self.on_data_received(data.addr, recv_data)
             else:
-                print("Closing connection from %s:%s" % data.addr)
+                info("Closing connection from %s:%s" % data.addr)
                 self._selector.unregister(sock)
                 del self._clients[data.addr]
                 sock.close()
-
 
         if mask & selectors.EVENT_WRITE:
             if data.outb:
@@ -55,17 +55,16 @@ class GenericTCPServer:
                     print("Exception on sending: %s" % ex)
                     sock.close()
 
-
     def _listen_worker(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.bind( ("127.0.0.1", self._port) )
+            sock.bind(("127.0.0.1", self._port))
         except OSError:
-            print("Port %d is already in use" % self._port)
-            return False
+            error("Port %d is already in use" % self._port)
+            self._enabled = False
 
         sock.listen()
-        print("Listening on port %d" % self._port)
+        info("Listening on port %d" % self._port)
         sock.setblocking(False)
         self._selector.register(sock, selectors.EVENT_READ, data=None)
 

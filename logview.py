@@ -1,24 +1,18 @@
 #!/usr/bin/python3
 
-import socket
-from sys import argv, stdout
+from sys import argv
 import json
 from clients import GenericTCPClient
 from time import sleep
 from queue import Queue
-from utils import pop_args
+from utils import pop_args, info, error, warning, set_log_level, VERSION
 from formatter import Formatter, Format, resolve_color
 import yaml
 
-COLORS={
-    "stdout": "1;34m",
-    "stderr": "1;31m",
-    "stdin": "1;33m"
-}
 
 class Configuration:
-    DEFAULT_LINE_FORMAT="{format:endpoint}{endpoint:8} {seq:6} {time} {data}"
-    DEFAULT_MARKER_FORMAT="{format:endpoint}>>>>>>>> MARKER {time} {name}"
+    DEFAULT_LINE_FORMAT = "{format:endpoint}{endpoint:8} {seq:6} {time} {data}"
+    DEFAULT_MARKER_FORMAT = "{format:endpoint}>>>>>>>> MARKER {time} {name}"
 
     def __init__(self):
         self.host = "127.0.0.1"
@@ -34,10 +28,11 @@ class Configuration:
     def _parse_format_node(self, node):
         fmt = Format()
         for fd, formats in node.items():
-            print(fd, formats)
-            if fd in ["endpoint"]: continue
+            if fd in ["endpoint"]:
+                continue
+
             if not isinstance(formats, dict):
-                print("Invalid format of formatting node")
+                error("Invalid format of formatting node")
                 exit(1)
             fmt.background_color[fd] = resolve_color(formats.get('background-color', "none"))
             fmt.foreground_color[fd] = resolve_color(formats.get('foreground-color', "white"))
@@ -47,10 +42,10 @@ class Configuration:
         with open(filename, 'r') as file:
             data = yaml.safe_load(file)
             if 'views' not in data:
-                print("Configuration file does not have \"views\" section")
+                error("Configuration file does not have \"views\" section")
                 exit(1)
             if view_name not in data['views']:
-                print("Configuration file does not have \"views\".\"%s\" section" % view_name)
+                error("Configuration file does not have \"views\".\"%s\" section" % view_name)
                 exit(1)
 
             server_data = data.get("server", None)
@@ -94,7 +89,7 @@ class TCPClient(GenericTCPClient):
                             data['fd'] = 'marker'
                             print(formatter.format_line(self._config.marker_format, data))
                     except json.decoder.JSONDecodeError as err:
-                        print("Failed to parse JSON: %s: %s" % (err, data_recv_str))
+                        warning("Failed to parse JSON: %s: %s" % (err, data_recv_str))
 
                 self._recv_buffer.clear()
             else:
@@ -127,17 +122,22 @@ def read_args(args):
     return config
 
 if __name__ == "__main__":
+    set_log_level(3)
+    info("*** LOGVIEW v%s" % VERSION)
     config = read_args(argv[1:])
     formatter = Formatter()
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
         formatter.add_endpoint_format(endpoint_name, endpoint_format)
+
+    set_log_level(2)
+
     try:
         client = TCPClient(config, formatter)
         client.run()
         while True:
             sleep(0.1)
     except ConnectionRefusedError:
-        print("Could not connect to the server: connection refused")
+        error("Could not connect to the server: connection refused")
         exit(1)
     except KeyboardInterrupt:
         pass

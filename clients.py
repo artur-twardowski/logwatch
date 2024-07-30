@@ -1,8 +1,10 @@
 import socket
 import threading as thrd
 
+
 class GenericTCPClient:
     RECV_SIZE = 1024
+
     def __init__(self, host, port):
         self._host = host
         self._port = port
@@ -12,7 +14,7 @@ class GenericTCPClient:
 
     def run(self):
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._socket.connect( (self._host, self._port) )
+        self._socket.connect((self._host, self._port))
 
         self._receiver_thread = thrd.Thread(target=self._receiver_worker)
         self._receiver_thread.start()
@@ -20,7 +22,6 @@ class GenericTCPClient:
     def stop(self):
         self._enabled = False
         self._receiver_thread.join()
-        pass
 
     def _receiver_worker(self):
         while self._enabled:

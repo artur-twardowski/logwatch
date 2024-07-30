@@ -8,7 +8,7 @@ import yaml
 from time import sleep
 from datetime import datetime
 from servers import GenericTCPServer
-from utils import pop_args
+from utils import pop_args, error, info, set_log_level, VERSION
 
 class SubprocessCommunication:
     def __init__(self, command_line, endpoint_name, servers):
@@ -26,7 +26,7 @@ class SubprocessCommunication:
         self._worker_thread.join()
 
     def _worker(self):
-        print("Endpoint %s: running command: %s" % (self._endpoint_name, self._command_line))
+        info("Endpoint %s: running command: %s" % (self._endpoint_name, self._command_line))
         proc = sp.Popen(self._command_line,
                         shell=True,
                         stdin=sp.PIPE,
@@ -50,7 +50,7 @@ class SubprocessCommunication:
     def _receiver(self, stream, fd):
         for line in stream:
             self._servers.broadcast_data(self._endpoint_name, fd, line.strip())
-        print("Receiver thread finished for fd=%s" % fd)
+        info("Receiver thread finished for fd=%s" % fd)
 
     def _sender(self, proc, stream):
         while proc.poll() is None:
@@ -60,7 +60,7 @@ class SubprocessCommunication:
                 stream.flush()
             else:
                 sleep(0.01)
-        print("Sender thread finished")
+        info("Sender thread finished")
 
 class ServerManager:
     def __init__(self):
@@ -122,7 +122,7 @@ class Configuration:
         with open(filename, 'r') as file:
             data = yaml.safe_load(file)
             if 'server' not in data:
-                print("Configuration file does not have \"server\" section")
+                error("Configuration file does not have \"server\" section")
                 exit(1)
             
             self.socket = data['server'].get('socket-port', None)
@@ -130,15 +130,15 @@ class Configuration:
 
             for endpoint in data['server'].get('endpoints', []):
                 if 'type' not in endpoint:
-                    print("Endpoint type must be provided")
+                    error("Endpoint type must be provided")
                     exit(1)
                 if 'name' not in endpoint:
-                    print("Endpoint name must be provided")
+                    error("Endpoint name must be provided")
                     exit(1)
 
                 if endpoint['type'] == 'subprocess':
                     if 'command' not in endpoint:
-                        print("Subprocess endpoint must have a command specified")
+                        error("Subprocess endpoint must have a command specified")
                     self.subprocesses.append((endpoint['name'], endpoint['command']))
 
 def read_args(args):
@@ -186,7 +186,7 @@ class TCPServer(GenericTCPServer):
                             self._server_manager.broadcast_marker(data['name'])
 
                     except json.decoder.JSONDecodeError as err:
-                        print("Failed to parse JSON: %s: %s" % (err, data_recv_str))
+                        error("Failed to parse JSON: %s: %s" % (err, data_recv_str))
 
                 self._recv_buffer.clear()
             else:
@@ -194,6 +194,8 @@ class TCPServer(GenericTCPServer):
 
 
 if __name__ == "__main__":
+    set_log_level(3)
+    info("*** LOGSERVER v%s" % VERSION)
     config = read_args(argv[1:])
     server_manager = ServerManager()
 

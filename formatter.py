@@ -1,5 +1,5 @@
 import re
-from utils import debug
+from utils import debug, error, warning
 
 COLOR_MAP = {
     "red1": 16 + 1*36 + 0*6 + 0,
@@ -66,15 +66,18 @@ COLOR_MAP = {
     "none": -1
 }
 
+
 def pad_left(string, char, size):
     while len(string) < size:
         string = str(char) + string
     return string
 
+
 def pad_right(string, char, size):
     while len(string) < size:
         string = string + str(char)
     return string
+
 
 def resolve_color(name: str):
     if name in COLOR_MAP:
@@ -82,8 +85,9 @@ def resolve_color(name: str):
     else:
         try:
             return int(name)
-        except:
+        except Exception:
             return -1
+
 
 class Format:
     DEFAULT_BG_COLOR = resolve_color("none")
@@ -106,11 +110,13 @@ class Format:
         fg_color = self.foreground_color.get(fd, self.DEFAULT_FG_COLOR)
         return bg_color, fg_color
 
+
 def ansi_format(bg_color, fg_color):
     if bg_color == -1:
         return "0;38;5;%d" % fg_color
     else:
         return "48;5;%d;38;5;%d" % (bg_color, fg_color)
+
 
 def subscript(s):
     REPLACEMENTS = {
@@ -124,6 +130,7 @@ def subscript(s):
         result = result.replace(char, replacement)
     return result
 
+
 def superscript(s):
     REPLACEMENTS = {
         '0': '\u2070', '1': '\u00b9', '2': '\u00b2', '3': '\u00b3',
@@ -135,6 +142,7 @@ def superscript(s):
     for char, replacement in REPLACEMENTS.items():
         result = result.replace(char, replacement)
     return result
+
 
 class Formatter:
     FORMATTING_TAG_DELIM = "\x10"
@@ -181,16 +189,16 @@ class Formatter:
                             replacement = "%*s" % (int(param), view_value)
                         elif param[0] == '<' and param[2] >= '1' and param[2] <= '9':
                             replacement = pad_right(str(view_value),
-                                                   param[1],
-                                                   int(param[2:]))
-                        elif param[0] == '>' and param[2] >= '1' and param[2] <= '9':
-                            replacement = pad_left(str(view_value),
                                                     param[1],
                                                     int(param[2:]))
+                        elif param[0] == '>' and param[2] >= '1' and param[2] <= '9':
+                            replacement = pad_left(str(view_value),
+                                                   param[1],
+                                                   int(param[2:]))
                     else:
                         replacement = view_value
                 except IndexError:
-                    print("Incorrect formatting parameter: %s" % param)
+                    error("Incorrect formatting parameter: %s" % param)
                     exit(1)
 
             result = result.replace(needle, replacement)
@@ -199,7 +207,7 @@ class Formatter:
         #   - replace all the formatting reset messages (ESC[0m) with appropriate formatting
         #     as configured
         if fields['endpoint'] not in self._endpoint_formats:
-            print("Could not find endpoint %s" % fields['endpoint'])
+            warning("Could not find endpoint %s" % fields['endpoint'])
 
         endpoint_fmt = self._endpoint_formats[fields['endpoint']].get(fields['fd'])
         reset_fmt = Format.DEFAULT_BG_COLOR, Format.DEFAULT_FG_COLOR
@@ -218,16 +226,16 @@ class Formatter:
                 continue
 
             elif data_to_format[ch_ix] == '\x1b':
-                if data_to_format[ch_ix + 1] == "[": # Formatting tag
+                if data_to_format[ch_ix + 1] == "[":  # Formatting tag
                     tag_end = data_to_format.find('m', ch_ix + 2)
-                    values = data_to_format[ch_ix+2:tag_end].split(';')
+                    values = data_to_format[ch_ix + 2:tag_end].split(';')
                     new_values = []
                     for v in values:
                         if v == "0":
                             new_values.append("0;" + ansi_format(default_fmt[0], default_fmt[1]))
                         else:
                             new_values.append(v)
-                    
+
                     result += "\x1b[" + (";".join(new_values)) + "m"
 
                     ch_ix = tag_end + 1
@@ -236,10 +244,12 @@ class Formatter:
             result += data_to_format[ch_ix]
             ch_ix += 1
 
-        # Clear the line till the end, so that the entire line is filled with the appropriate background color
+        # Clear the line till the end, so that the entire line is filled
+        # with the appropriate background color
         result += "\x1b[K\x1b[0m"
 
         return result
+
 
 if __name__ == "__main__":
     formatter = Formatter()
