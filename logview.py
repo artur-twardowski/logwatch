@@ -139,4 +139,6 @@ if __name__ == "__main__":
     except ConnectionRefusedError:
         print("Could not connect to the server: connection refused")
         exit(1)
+    except KeyboardInterrupt:
+        pass
     client.stop()
