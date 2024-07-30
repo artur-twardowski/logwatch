@@ -135,7 +135,7 @@ if __name__ == "__main__":
         client = TCPClient(config, formatter)
         client.run()
         while True:
-            sleep(1)
+            sleep(0.1)
     except ConnectionRefusedError:
         print("Could not connect to the server: connection refused")
         exit(1)

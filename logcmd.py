@@ -91,5 +91,4 @@ if __name__ == "__main__":
         data = json.dumps(cmd)
         print("Sending: %s" % data)
         client.send(data)
-    sleep(1)
     client.stop()
