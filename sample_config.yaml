@@ -2,7 +2,7 @@ server:
   socket-port: 2207
   endpoints:
     - type: "subprocess"
-      name: "dmesg"
+      name: "command"
       short-name: "sh"
       command: "./test1.sh"
 
@@ -18,14 +18,19 @@ views:
   main:
     show-endpoints: all
     formats:
-      - endpoint: "dmesg"
+      - endpoint: "command"
         stdout:
           background-color: none
           foreground-color: white
         stderr:
           background-color: red1
           foreground-color: red8
-    line-format: "{format:endpoint}[{endpoint}] {seq:_6} {time}\u2503 {data}"
+      - endpoint: "_"
+        marker:
+          background-color: yellow1
+          foreground-color: yellow8
+
+    line-format: "{format:endpoint}[{endpoint:8}] {seq:_6} {time}\u2503 {data}"
     filtered: false
 
   filtered:

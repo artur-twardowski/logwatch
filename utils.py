@@ -1,5 +1,6 @@
 def debug(message):
-    print("\x1b[33m%s\x1b[0m" % message)
+    #print("\x1b[33m%s\x1b[0m" % message)
+    pass
 
 def pop_args(arg_queue, argument, *names):
     if arg_queue.qsize() < len(names):

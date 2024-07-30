@@ -66,6 +66,7 @@ class ServerManager:
     def __init__(self):
         self._servers = []
         self._line_seq_no = 0
+        self._default_marker_no = 1
 
     def register(self, server):
         self._servers.append(server)
@@ -93,6 +94,21 @@ class ServerManager:
             server.broadcast(json.dumps({
                 "type": "keepalive",
                 "seq": seq_no
+            }))
+
+    def broadcast_marker(self, name):
+        today = datetime.now()
+
+        if name == "":
+            name = "MARKER %d" % self._default_marker_no
+            self._default_marker_no += 1
+
+        for server in self._servers:
+            server.broadcast(json.dumps({
+                "type": "marker",
+                "name": name,
+                "date": today.strftime("%Y-%m-%d"),
+                "time": today.strftime("%H:%M:%S")
             }))
 
 
@@ -153,18 +169,36 @@ def read_args(args):
     return config
 
 class TCPServer(GenericTCPServer):
-    def __init__(self, port):
+    def __init__(self, port, server_manager: ServerManager):
         super().__init__(port)
+        self._server_manager = server_manager
+        self._recv_buffer = bytearray()
 
-    def on_data_received(self, addr, data):
-        print("Received data from %s:%s: %s" % (addr[0], addr[1], data))
+    def on_data_received(self, addr, recv_data):
+        for byte in recv_data:
+            if byte == 0:
+                data_recv_str = str(self._recv_buffer, 'utf-8')
+
+                if len(data_recv_str) > 0:
+                    try:
+                        data = json.loads(data_recv_str)
+                        if data['type'] == 'set-marker':
+                            self._server_manager.broadcast_marker(data['name'])
+
+                    except json.decoder.JSONDecodeError as err:
+                        print("Failed to parse JSON: %s: %s" % (err, data_recv_str))
+
+                self._recv_buffer.clear()
+            else:
+                self._recv_buffer.append(byte)
+
 
 if __name__ == "__main__":
     config = read_args(argv[1:])
     server_manager = ServerManager()
 
     if config.socket is not None:
-        server_manager.register(TCPServer(config.socket))
+        server_manager.register(TCPServer(config.socket, server_manager))
 
     server_manager.run_all()
 
@@ -177,5 +211,5 @@ if __name__ == "__main__":
     ix = 0
     while True:
         server_manager.broadcast_keepalive(ix)
-        ix += 1
+        ix += 0
         sleep(1)

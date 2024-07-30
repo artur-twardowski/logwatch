@@ -198,7 +198,10 @@ class Formatter:
         # Process the ANSI codes:
         #   - replace all the formatting reset messages (ESC[0m) with appropriate formatting
         #     as configured
-        endpoint_fmt = self._endpoint_formats.get(fields.get('endpoint')).get(fields.get('fd'))
+        if fields['endpoint'] not in self._endpoint_formats:
+            print("Could not find endpoint %s" % fields['endpoint'])
+
+        endpoint_fmt = self._endpoint_formats[fields['endpoint']].get(fields['fd'])
         reset_fmt = Format.DEFAULT_BG_COLOR, Format.DEFAULT_FG_COLOR
         default_fmt = reset_fmt
 

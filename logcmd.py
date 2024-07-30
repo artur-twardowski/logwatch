@@ -54,24 +54,29 @@ def read_args(args):
                 "format": formatting
             })
         elif arg in ['-F', '--clear-filter']:
-            index_s = pop_args(arg_queue, arg, 'index')
+            index_s, = pop_args(arg_queue, arg, 'index')
             config.commands.append({
                 "type": "clear-filter",
                 "index": index_s
             })
         elif arg in ['-x', '--execute']:
-            command = pop_args(arg_queue, arg, 'command')
+            command, = pop_args(arg_queue, arg, 'command')
             config.commands.append({
                 "type": "execute",
                 "command": command
             })
         elif arg in ['-X', '--execute-index']:
-            command_index_s = pop_args(arg_queue, arg, 'command-index')
+            command_index_s, = pop_args(arg_queue, arg, 'command-index')
             config.commands.append({
                 "type": "execute-index",
                 "index": command_index_s
             })
-
+        elif arg in ['-m', '--marker']:
+            marker_name, = pop_args(arg_queue, arg, 'marker-name')
+            config.commands.append({
+                "type": "set-marker",
+                "name": marker_name
+            })
 
         else:
             print("Unknown option: %s" % arg)
@@ -86,4 +91,5 @@ if __name__ == "__main__":
         data = json.dumps(cmd)
         print("Sending: %s" % data)
         client.send(data)
+    sleep(1)
     client.stop()

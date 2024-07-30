@@ -25,6 +25,7 @@ class Configuration:
         self.line_format = None
         self.endpoint_formats = {}
         self.filter_formats = {}
+        self.marker_format = None
 
     def _parse_format_node(self, node):
         fmt = Format()
@@ -81,6 +82,12 @@ class TCPClient(GenericTCPClient):
                     try:
                         data = json.loads(data_recv_str)
                         if data['type'] == 'data':
+                            print(formatter.format_line(self._config.line_format, data))
+                        elif data['type'] == 'marker':
+                            data['data'] = data['name']
+                            data['endpoint'] = '_'
+                            data['fd'] = 'marker'
+                            data['seq'] = 'MARKER'
                             print(formatter.format_line(self._config.line_format, data))
                     except json.decoder.JSONDecodeError as err:
                         print("Failed to parse JSON: %s: %s" % (err, data_recv_str))
