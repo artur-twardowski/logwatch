@@ -23,6 +23,7 @@ class Configuration:
         self.socket = None
         self.websocket = None
         self.line_format = None
+        self.marker_format = None
         self.endpoint_formats = {}
         self.filter_formats = {}
         self.marker_format = None
@@ -60,7 +61,9 @@ class Configuration:
             self.socket = view_data.get('socket-port', None)
             self.websocket = view_data.get('websocket-port', None)
 
-            self.line_format = view_data.get('line-format', None) #TODO: default format
+            #TODO: define default formats for both
+            self.line_format = view_data.get('line-format', None) 
+            self.marker_format = view_data.get('marker-format', None)
 
             for format in view_data.get('formats', []):
                 if 'endpoint' in format:
@@ -87,8 +90,7 @@ class TCPClient(GenericTCPClient):
                             data['data'] = data['name']
                             data['endpoint'] = '_'
                             data['fd'] = 'marker'
-                            data['seq'] = 'MARKER'
-                            print(formatter.format_line(self._config.line_format, data))
+                            print(formatter.format_line(self._config.marker_format, data))
                     except json.decoder.JSONDecodeError as err:
                         print("Failed to parse JSON: %s: %s" % (err, data_recv_str))
 
