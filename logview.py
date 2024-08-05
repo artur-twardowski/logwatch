@@ -100,7 +100,6 @@ class Configuration:
                 if 'regex' in format:
                     filter_node = self._parse_filter_node(format)
                     self.filters[filter_node.name] = filter_node
-                    print("filters += %s" % filter_node.name)
 
 class ConsoleOutput:
     def __init__(self, config: Configuration, formatter: Formatter):
