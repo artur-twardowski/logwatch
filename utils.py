@@ -23,7 +23,7 @@ def info(message):
 def warning(message):
     global log_level
     if log_level >= 2:
-        print("\x1b[1;35mWARNING: %s\x1b[0m" % message)
+        print("\x1b[1;33mWARNING: %s\x1b[0m" % message)
 
 
 def error(message):

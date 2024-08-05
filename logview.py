@@ -8,7 +8,23 @@ from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
 from formatter import Formatter, Format, resolve_color
 import yaml
+import re
 
+class Filter:
+    def __init__(self):
+        self.name = None
+        self.regex = None
+        self.format = Format()
+        self.enabled = True
+        self._prepared_regex = None
+
+    def set_regex(self, regex):
+        self.regex = regex
+        self._prepared_regex = re.compile(regex)
+
+    def match(self, line):
+        result = self._prepared_regex.search(line)
+        return result is not None
 
 class Configuration:
     DEFAULT_LINE_FORMAT = "{format:endpoint}{endpoint:8} {seq:6} {time} {data}"
@@ -17,13 +33,15 @@ class Configuration:
     def __init__(self):
         self.host = "127.0.0.1"
         self.port = 2207
+        self.log_level = 2
         self.socket = None
         self.websocket = None
         self.line_format = None
         self.marker_format = None
         self.endpoint_formats = {}
-        self.filter_formats = {}
+        self.filters = {}
         self.marker_format = None
+        self.filtered_mode = False
 
     def _parse_format_node(self, node):
         fmt = Format()
@@ -37,6 +55,19 @@ class Configuration:
             fmt.background_color[fd] = resolve_color(formats.get('background-color', "none"))
             fmt.foreground_color[fd] = resolve_color(formats.get('foreground-color', "white"))
         return fmt
+
+    def _parse_filter_node(self, node):
+        filter = Filter()
+        if 'regex' not in node:
+            error("Missing \"regex\" field in filter definition")
+            exit(1)
+
+        filter.set_regex(node['regex'])
+        filter.name = node.get('name', filter.regex)
+        filter.enabled = node.get('enabled', True)
+        filter.format.background_color['stdout'] = resolve_color(node.get('background-color', 'none'))
+        filter.format.foreground_color['stdout'] = resolve_color(node.get('foreground-color', 'white'))
+        return filter
 
     def read(self, filename, view_name="main"):
         with open(filename, 'r') as file:
@@ -61,16 +92,42 @@ class Configuration:
 
             self.line_format = view_data.get('line-format', self.DEFAULT_LINE_FORMAT) 
             self.marker_format = view_data.get('marker-format', self.DEFAULT_MARKER_FORMAT)
+            self.filtered_mode = view_data.get('filtered', False)
 
             for format in view_data.get('formats', []):
                 if 'endpoint' in format:
                     self.endpoint_formats[format['endpoint']] = self._parse_format_node(format)
+                if 'regex' in format:
+                    filter_node = self._parse_filter_node(format)
+                    self.filters[filter_node.name] = filter_node
+                    print("filters += %s" % filter_node.name)
 
-class TCPClient(GenericTCPClient):
+class ConsoleOutput:
     def __init__(self, config: Configuration, formatter: Formatter):
-        super().__init__(config.host, config.port)
         self._config = config
         self._formatter = formatter
+
+    def print_line(self, data):
+        if not self._config.filtered_mode:
+            print(self._formatter.format_line(self._config.line_format, data))
+        else:
+            for name, filter in self._config.filters.items():
+                if filter.enabled and filter.match(data['data']):
+                    data['filter'] = name
+                    print(self._formatter.format_line(self._config.line_format, data))
+
+    def print_marker(self, data):
+        data['data'] = data['name']
+        data['endpoint'] = '_'
+        data['fd'] = 'marker'
+        print(self._formatter.format_line(self._config.marker_format, data))
+
+
+class TCPClient(GenericTCPClient):
+    def __init__(self, config: Configuration, cout: ConsoleOutput):
+        super().__init__(config.host, config.port)
+        self._config = config
+        self._cout = cout
         self._recv_buffer = bytearray()
 
     def on_data_received(self, recv_data):
@@ -82,12 +139,9 @@ class TCPClient(GenericTCPClient):
                     try:
                         data = json.loads(data_recv_str)
                         if data['type'] == 'data':
-                            print(formatter.format_line(self._config.line_format, data))
+                            self._cout.print_line(data);
                         elif data['type'] == 'marker':
-                            data['data'] = data['name']
-                            data['endpoint'] = '_'
-                            data['fd'] = 'marker'
-                            print(formatter.format_line(self._config.marker_format, data))
+                            self._cout.print_marker(data)
                     except json.decoder.JSONDecodeError as err:
                         warning("Failed to parse JSON: %s: %s" % (err, data_recv_str))
 
@@ -116,6 +170,8 @@ def read_args(args):
         elif arg in ['-c', '--config']:
             config_file, view_name = pop_args(arg_queue, arg, "file-name", "view-name")
             config.read(config_file, view_name)
+        elif arg in ['-v', '--verbose']:
+            config.log_level += 1
         else:
             print("Unknown option: %s" % arg)
             exit(1)
@@ -125,14 +181,19 @@ if __name__ == "__main__":
     set_log_level(3)
     info("*** LOGVIEW v%s" % VERSION)
     config = read_args(argv[1:])
+    set_log_level(config.log_level)
+
     formatter = Formatter()
+    console_output = ConsoleOutput(config, formatter)
+
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
         formatter.add_endpoint_format(endpoint_name, endpoint_format)
 
-    set_log_level(2)
+    for filter_name, filter in config.filters.items():
+        formatter.add_filter_format(filter_name, filter.format)
 
     try:
-        client = TCPClient(config, formatter)
+        client = TCPClient(config, console_output)
         client.run()
         while True:
             sleep(0.1)

@@ -36,10 +36,10 @@ views:
 
   filtered:
     socket-port: 2208
-    line-format: "{format:match}[{endpoint}] {seq:6} {time}{format:reset} {data}"
+    line-format: "{format:filter}[{filter}] {fd} {seq:6} {time}{format:reset} {data}"
     filtered: true
     formats:
-      - filter: '\.py'
-        background-color: red
+      - regex: '.py'
+        background-color: blue7
         foreground-color: black
         enabled: true

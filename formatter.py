@@ -100,12 +100,14 @@ class Format:
             "stdin": resolve_color("yellow1")
         }
         self.foreground_color = {
-                "stdout": self.DEFAULT_FG_COLOR,
-                "stderr": self.DEFAULT_FG_COLOR,
-                "stdin": resolve_color("yellow7")
+            "stdout": self.DEFAULT_FG_COLOR,
+            "stderr": self.DEFAULT_FG_COLOR,
+            "stdin": resolve_color("yellow7")
         }
 
     def get(self, fd):
+        if fd not in self.background_color:
+            warning("No format defined for fd=%s" % fd)
         bg_color = self.background_color.get(fd, self.DEFAULT_BG_COLOR)
         fg_color = self.foreground_color.get(fd, self.DEFAULT_FG_COLOR)
         return bg_color, fg_color
@@ -148,16 +150,23 @@ class Formatter:
     FORMATTING_TAG_DELIM = "\x10"
     FORMATTING_RESET = "R"
     FORMATTING_ENDPOINT = "E"
+    FORMATTING_FILTER = "F"
 
     def __init__(self):
         self._re_tag = re.compile(r'(\{([A-Za-z0-9_-]+)(?::([^}]+))?\})')
         self._endpoint_formats = {}
+        self._filter_formats = {}
         pass
 
     def add_endpoint_format(self, name, format: Format):
         debug("Adding formatting for endpoint %s: background=%s, foreground=%s" % (
             name, format.background_color, format.foreground_color))
         self._endpoint_formats[name] = format
+
+    def add_filter_format(self, name, format: Format):
+        debug("Adding formatting for filter %s: background=%s, foreground=%s" % (
+            name, format.background_color, format.foreground_color))
+        self._filter_formats[name] = format
 
     def format_line(self, fmt, fields):
         tags = self._re_tag.findall(fmt)
@@ -173,6 +182,9 @@ class Formatter:
 
                 elif param == "endpoint":
                     replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_ENDPOINT + "\x1b[0m"
+
+                elif param == "filter":
+                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_FILTER + "\x1b[0m"
 
             elif key in fields:
                 try:
@@ -206,11 +218,18 @@ class Formatter:
         # Process the ANSI codes:
         #   - replace all the formatting reset messages (ESC[0m) with appropriate formatting
         #     as configured
-        if fields['endpoint'] not in self._endpoint_formats:
-            warning("Could not find endpoint %s" % fields['endpoint'])
-
-        endpoint_fmt = self._endpoint_formats[fields['endpoint']].get(fields['fd'])
         reset_fmt = Format.DEFAULT_BG_COLOR, Format.DEFAULT_FG_COLOR
+
+        if fields['endpoint'] in self._endpoint_formats:
+            endpoint_fmt = self._endpoint_formats[fields['endpoint']].get(fields['fd'])
+        else:
+            endpoint_fmt = reset_fmt
+
+        if fields['filter'] in self._filter_formats:
+            filter_fmt = self._filter_formats[fields['filter']].get(fields['fd'])
+        else:
+            filter_fmt = reset_fmt
+
         default_fmt = reset_fmt
 
         data_to_format = result
@@ -222,6 +241,8 @@ class Formatter:
                     default_fmt = reset_fmt
                 elif data_to_format[ch_ix + 1] == self.FORMATTING_ENDPOINT:
                     default_fmt = endpoint_fmt
+                elif data_to_format[ch_ix + 1] == self.FORMATTING_FILTER:
+                    default_fmt = filter_fmt
                 ch_ix += 2
                 continue
 
