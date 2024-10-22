@@ -28,6 +28,7 @@ class GenericTCPServer:
         conn.setblocking(False)
         self._selector.register(conn, selectors.EVENT_READ | selectors.EVENT_WRITE, SimpleNamespace(addr=addr, inb=b'', outb=b''))
         self._clients[addr] = conn
+        self.on_client_connected(addr, conn)
 
     def _serve(self, sock, data, mask):
         if mask & selectors.EVENT_READ:
@@ -84,6 +85,18 @@ class GenericTCPServer:
             data_raw = bytes(data + "\0", 'utf-8')
             self._selector.get_key(conn).data.outb += data_raw
 
+    def send(self, addr, data):
+        debug("Sending to %s:%s: %s" % (addr[0], addr[1], data))
+        try:
+            conn = self._clients[addr]
+            data_raw = bytes(data + "\0", 'utf-8')
+            self._selector.get_key(conn).data.outb += data_raw
+        except Exception:
+            raise
+
     def on_data_received(self, addr, data):
+        pass
+
+    def on_client_connected(self, addr, conn):
         pass
 

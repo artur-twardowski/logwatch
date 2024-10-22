@@ -251,7 +251,7 @@ class Formatter:
         else:
             endpoint_fmt = reset_fmt
 
-        if fields['filter'] in self._filter_formats:
+        if 'filter' in fields and fields['filter'] in self._filter_formats:
             filter_fmt = self._filter_formats[fields['filter']].get(fields['fd'])
         else:
             filter_fmt = reset_fmt

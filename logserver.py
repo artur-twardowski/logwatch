@@ -2,6 +2,7 @@
 import subprocess as sp
 from sys import argv
 import threading as thrd
+from collections import deque
 from queue import Queue
 import json
 import yaml
@@ -67,6 +68,17 @@ class ServerManager:
         self._servers = []
         self._line_seq_no = 0
         self._default_marker_no = 1
+        self._late_join_buf = deque()
+        self._late_join_buf_size = 256
+
+    def set_late_join_buf_size(self, size):
+        if size is not None:
+            self._late_join_buf_size = size
+
+    def add_to_late_join_buf(self, record):
+        while len(self._late_join_buf) >= self._late_join_buf_size:
+            self._late_join_buf.popleft()
+        self._late_join_buf.append(record)
 
     def register(self, server):
         self._servers.append(server)
@@ -78,7 +90,7 @@ class ServerManager:
     def broadcast_data(self, endpoint_name, fd, data):
         today = datetime.now()
         for server in self._servers:
-            server.broadcast(json.dumps({
+            record = {
                 "type": "data",
                 "endpoint": endpoint_name,
                 "fd": fd,
@@ -86,7 +98,9 @@ class ServerManager:
                 "seq": self._line_seq_no,
                 "date": today.strftime("%Y-%m-%d"),
                 "time": today.strftime("%H:%M:%S")
-            }))
+            }
+            server.broadcast(json.dumps(record))
+            self.add_to_late_join_buf(record)
         self._line_seq_no += 1
 
     def broadcast_keepalive(self, seq_no):
@@ -104,12 +118,19 @@ class ServerManager:
             self._default_marker_no += 1
 
         for server in self._servers:
-            server.broadcast(json.dumps({
+            record = {
                 "type": "marker",
                 "name": name,
                 "date": today.strftime("%Y-%m-%d"),
                 "time": today.strftime("%H:%M:%S")
-            }))
+            }
+            server.broadcast(json.dumps(record))
+            self.add_to_late_join_buf(record)
+
+    def send_late_join_records(self, server, client_addr):
+        info("Sending previous %d lines to %s:%s" % (len(self._late_join_buf), client_addr[0], client_addr[1]))
+        for rec in self._late_join_buf:
+            server.send(client_addr, json.dumps(rec))
 
 
 class Configuration:
@@ -117,6 +138,7 @@ class Configuration:
         self.subprocesses = []
         self.socket = None
         self.websocket = None
+        self.late_join_buf_size = None
 
     def read(self, filename):
         with open(filename, 'r') as file:
@@ -127,6 +149,7 @@ class Configuration:
             
             self.socket = data['server'].get('socket-port', None)
             self.websocket = data['server'].get('websocket-port', None)
+            self.late_join_buf_size = data['server'].get('late-joiners-buffer-size', None)
 
             for endpoint in data['server'].get('endpoints', []):
                 if 'type' not in endpoint:
@@ -192,12 +215,15 @@ class TCPServer(GenericTCPServer):
             else:
                 self._recv_buffer.append(byte)
 
+    def on_client_connected(self, addr, conn):
+        self._server_manager.send_late_join_records(self, addr)
 
 if __name__ == "__main__":
     set_log_level(3)
     info("*** LOGSERVER v%s" % VERSION)
     config = read_args(argv[1:])
     server_manager = ServerManager()
+    server_manager.set_late_join_buf_size(config.late_join_buf_size)
 
     if config.socket is not None:
         server_manager.register(TCPServer(config.socket, server_manager))
