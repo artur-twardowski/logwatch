@@ -148,6 +148,9 @@ class TCPClient(GenericTCPClient):
             else:
                 self._recv_buffer.append(byte)
 
+    def send_enc(self, data):
+        self.send(json.dumps(data))
+
 def read_args(args):
     arg_queue = Queue()
     config = Configuration()
@@ -176,6 +179,28 @@ def read_args(args):
             exit(1)
     return config
 
+def process_command(client_socket, inp):
+    SUPPORTED_COMMANDS = ["marker"]
+
+    inp_split = inp.split(' ', 1)
+    if len(inp_split) == 2:
+        command_short, argument = inp_split
+    else:
+        command_short, argument = (inp_split[0], "")
+    command = None
+    for match in SUPPORTED_COMMANDS:
+        if match.startswith(command_short):
+            if command is None:
+                command = match
+            else:
+                error("Command \"%s\" is ambiguous" % command_short)
+                return
+    if command is None:
+        error("No command matches \"%s\"" % command_short)
+
+    if command == "marker":
+        client_socket.send_enc({"type": "set-marker", "name": argument})
+
 if __name__ == "__main__":
     set_log_level(3)
     info("*** LOGVIEW v%s" % VERSION)
@@ -194,9 +219,10 @@ if __name__ == "__main__":
     try:
         client = TCPClient(config, console_output)
         client.run()
-        client.send(json.dumps({'type': 'get-late-join-records'}))
+        client.send_enc({'type': 'get-late-join-records'})
         while True:
-            sleep(0.1)
+            command = input()
+            process_command(client, command)
     except ConnectionRefusedError:
         error("Could not connect to the server: connection refused")
         exit(1)
