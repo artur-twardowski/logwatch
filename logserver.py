@@ -73,7 +73,10 @@ class ServerManager:
 
     def set_late_join_buf_size(self, size):
         if size is not None:
+            info("Set late joiners buffer size to %d records" % size)
             self._late_join_buf_size = size
+        else:
+            info("No late joiners buffer size configured, using default of %d records" % self._late_join_buf_size)
 
     def add_to_late_join_buf(self, record):
         while len(self._late_join_buf) >= self._late_join_buf_size:
@@ -207,6 +210,8 @@ class TCPServer(GenericTCPServer):
                         data = json.loads(data_recv_str)
                         if data['type'] == 'set-marker':
                             self._server_manager.broadcast_marker(data['name'])
+                        elif data['type'] == 'get-late-join-records':
+                            self._server_manager.send_late_join_records(self, addr)
 
                     except json.decoder.JSONDecodeError as err:
                         error("Failed to parse JSON: %s: %s" % (err, data_recv_str))
@@ -214,9 +219,6 @@ class TCPServer(GenericTCPServer):
                 self._recv_buffer.clear()
             else:
                 self._recv_buffer.append(byte)
-
-    def on_client_connected(self, addr, conn):
-        self._server_manager.send_late_join_records(self, addr)
 
 if __name__ == "__main__":
     set_log_level(3)

@@ -1,11 +1,11 @@
 server:
   socket-port: 2207
+  late-joiners-buffer-size: 1000
   endpoints:
     - type: "subprocess"
       name: "command"
       short-name: "sh"
       command: "./test1.sh"
-      late-joiners-buffer-size: 1000
 
       commands:
         test1:

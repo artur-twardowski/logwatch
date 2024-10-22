@@ -194,6 +194,7 @@ if __name__ == "__main__":
     try:
         client = TCPClient(config, console_output)
         client.run()
+        client.send(json.dumps({'type': 'get-late-join-records'}))
         while True:
             sleep(0.1)
     except ConnectionRefusedError:
