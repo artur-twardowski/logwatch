@@ -4,6 +4,7 @@ from sys import argv
 import json
 from clients import GenericTCPClient
 from time import sleep
+from collections import deque
 from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
 from formatter import Formatter, Format, resolve_color
@@ -42,6 +43,7 @@ class Configuration:
         self.filters = {}
         self.marker_format = None
         self.filtered_mode = False
+        self.max_held_lines = None
 
     def _parse_format_node(self, node):
         fmt = Format()
@@ -93,6 +95,7 @@ class Configuration:
             self.line_format = view_data.get('line-format', self.DEFAULT_LINE_FORMAT) 
             self.marker_format = view_data.get('marker-format', self.DEFAULT_MARKER_FORMAT)
             self.filtered_mode = view_data.get('filtered', False)
+            self.max_held_lines = view_data.get('max-held-lines', None)
 
             for format in view_data.get('formats', []):
                 if 'endpoint' in format:
@@ -105,8 +108,23 @@ class ConsoleOutput:
     def __init__(self, config: Configuration, formatter: Formatter):
         self._config = config
         self._formatter = formatter
+        self._held_lines = deque()
+        self._max_held_lines = 5000
+        self._pause = False
+        self._held_lines_overflow = False
+        self._drop_newest_lines = False
 
-    def print_line(self, data):
+    def set_max_held_lines(self, size):
+        if size is not None:
+            info("Set maximum number of held lines to %d" % size)
+            self._max_held_lines = size
+        else:
+            info("No maximum number of held lines set, using default of %d" % self._max_held_lines)
+
+    def set_drop_newest_lines_policy(self, value):
+        self._drop_newest_lines = value
+
+    def _print_line(self, data):
         if not self._config.filtered_mode:
             print(self._formatter.format_line(self._config.line_format, data))
         else:
@@ -115,12 +133,63 @@ class ConsoleOutput:
                     data['filter'] = name
                     print(self._formatter.format_line(self._config.line_format, data))
 
+    def _print_marker(self, data):
+        print(self._formatter.format_line(self._config.marker_format, data))
+
+    def _hold(self, data):
+        drop_line = False
+        while len(self._held_lines) >= self._max_held_lines:
+            if not self._held_lines_overflow:
+                self._held_lines_overflow = True
+                warning("Some lines have been dropped, only %s %d will be displayed after resuming" % (
+                    "first" if self._drop_newest_lines else "last",
+                    self._max_held_lines))
+
+            if self._drop_newest_lines:
+                drop_line = True
+            else:
+                self._held_lines.popleft()
+
+        if not drop_line:
+            self._held_lines.append(data)
+
+    def print_line(self, data):
+        if self._pause:
+            self._hold(data)
+        else:
+            self._print_line(data)
+
     def print_marker(self, data):
         data['data'] = data['name']
         data['endpoint'] = '_'
         data['fd'] = 'marker'
-        print(self._formatter.format_line(self._config.marker_format, data))
+        if self._pause:
+            self._hold(data)
+        else:
+            self._print_marker(data)
 
+    def pause(self):
+        self._pause = True
+
+    def resume(self):
+        while len(self._held_lines) > 0:
+            data = self._held_lines.popleft()
+            if data['endpoint'] == '_' and data['fd'] == 'marker':
+                self._print_marker(data)
+            else:
+                self._print_line(data)
+        self._pause = False
+        self._held_lines_overflow = False
+
+    def feed(self, amount):
+        for _ in range(0, amount):
+            if len(self._held_lines) == 0:
+                break
+            data = self._held_lines.popleft()
+            if data['endpoint'] == '_' and data['fd'] == 'marker':
+                self._print_marker(data)
+            else:
+                self._print_line(data)
 
 class TCPClient(GenericTCPClient):
     def __init__(self, config: Configuration, cout: ConsoleOutput):
@@ -179,8 +248,8 @@ def read_args(args):
             exit(1)
     return config
 
-def process_command(client_socket, inp):
-    SUPPORTED_COMMANDS = ["marker"]
+def process_command(client_socket, console_output, inp):
+    SUPPORTED_COMMANDS = ["marker", "pause", "resume", "feed"]
 
     inp_split = inp.split(' ', 1)
     if len(inp_split) == 2:
@@ -200,6 +269,24 @@ def process_command(client_socket, inp):
 
     if command == "marker":
         client_socket.send_enc({"type": "set-marker", "name": argument})
+    elif command == "pause":
+        if argument.startswith('a'): # 'a' stands for "analysis mode"
+            console_output.set_drop_newest_lines_policy(True)
+        else:
+            console_output.set_drop_newest_lines_policy(False)
+        console_output.pause()
+    elif command == "resume":
+        console_output.resume()
+    elif command == "feed":
+        if argument == "":
+            num_lines = 10
+        else:
+            try:
+                num_lines = int(argument)
+            except Exception:
+                error("Not a valid number: \"%s\"" % argument)
+                return
+        console_output.feed(num_lines)
 
 if __name__ == "__main__":
     set_log_level(3)
@@ -209,6 +296,7 @@ if __name__ == "__main__":
 
     formatter = Formatter()
     console_output = ConsoleOutput(config, formatter)
+    console_output.set_max_held_lines(config.max_held_lines)
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
         formatter.add_endpoint_format(endpoint_name, endpoint_format)
@@ -220,9 +308,15 @@ if __name__ == "__main__":
         client = TCPClient(config, console_output)
         client.run()
         client.send_enc({'type': 'get-late-join-records'})
+
+        last_command = None
         while True:
             command = input()
-            process_command(client, command)
+            if command == "" and last_command is not None:
+                command = last_command
+            if command != "":
+                process_command(client, console_output, command)
+                last_command = command
     except ConnectionRefusedError:
         error("Could not connect to the server: connection refused")
         exit(1)
