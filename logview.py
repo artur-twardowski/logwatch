@@ -71,6 +71,18 @@ class Configuration:
         filter.format.foreground_color['stdout'] = resolve_color(node.get('foreground-color', 'white'))
         return filter
 
+    def register_filter(self, filter_node):
+        info("Registered filter %s: %s" % (filter_node.name, filter_node.regex))
+        self.filters[filter_node.name] = filter_node
+
+    def enable_filter(self, filter_name):
+        if filter_name in self.filters:
+            self.filters[filter_name].enabled = True
+
+    def disable_filter(self, filter_name):
+        if filter_name in self.filters:
+            self.filters[filter_name].enabled = False
+
     def read(self, filename, view_name="main"):
         with open(filename, 'r') as file:
             data = yaml.safe_load(file)
@@ -248,8 +260,8 @@ def read_args(args):
             exit(1)
     return config
 
-def process_command(client_socket, console_output, inp):
-    SUPPORTED_COMMANDS = ["marker", "pause", "resume", "feed"]
+def process_command(client_socket, console_output, formatter, config, inp):
+    SUPPORTED_COMMANDS = ["marker", "pause", "resume", "feed", "watch", "enable", "disable"]
 
     inp_split = inp.split(' ', 1)
     if len(inp_split) == 2:
@@ -287,6 +299,39 @@ def process_command(client_socket, console_output, inp):
                 error("Not a valid number: \"%s\"" % argument)
                 return
         console_output.feed(num_lines)
+    elif command == "watch":
+        if argument.startswith(':'):
+            format, regex = argument.split(' ', 1)
+            format = format[1:]
+            if format.find(':') == -1:
+                foreground_color = format
+                background_color = "none"
+            else:
+                foreground_color, background_color = format.split(':')
+        else:
+            regex = argument
+            foreground_color = "white"
+            background_color = "none"
+
+        filter = Filter()
+        filter.enabled = True
+        filter.format.background_color["stdout"] = resolve_color(background_color)
+        filter.format.foreground_color["stdout"] = resolve_color(foreground_color)
+        filter.format.background_color["stderr"] = filter.format.background_color["stdout"]
+        filter.format.foreground_color["stderr"] = filter.format.foreground_color["stdout"]
+        filter.set_regex(regex)
+
+        filter_ix = 1
+        while ("F%d" % filter_ix) in config.filters:
+            filter_ix += 1
+        filter.name = "F%d" % filter_ix
+
+        config.register_filter(filter)
+        formatter.add_filter_format(filter.name, filter.format)
+    elif command == "enable":
+        config.enable_filter(argument)
+    elif command == "disable":
+        config.disable_filter(argument)
 
 if __name__ == "__main__":
     set_log_level(3)
@@ -315,7 +360,7 @@ if __name__ == "__main__":
             if command == "" and last_command is not None:
                 command = last_command
             if command != "":
-                process_command(client, console_output, command)
+                process_command(client, console_output, formatter, config, command)
                 last_command = command
     except ConnectionRefusedError:
         error("Could not connect to the server: connection refused")
