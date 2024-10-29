@@ -245,34 +245,33 @@ class ConsoleOutput:
             self._held_lines.append(data)
 
     def print_line(self, data):
-        if self._pause:
-            self._hold(data)
-            self._status_line_req_update = True
-        else:
-            self._print_line(data)
-            self._status_line_req_update = True
+        self._hold(data)
+        self._status_line_req_update = True
 
     def print_marker(self, data):
         data['data'] = data['name']
         data['endpoint'] = '_'
         data['fd'] = 'marker'
-        if self._pause:
-            self._hold(data)
-        else:
-            self._print_marker(data)
+        self._hold(data)
 
     def pause(self):
         self._pause = True
 
     def resume(self):
+        self._pause = False
+        self._held_lines_overflow = False
+        self.write_pending_lines()
+
+    def write_pending_lines(self):
+        if self._pause:
+            return
+
         while len(self._held_lines) > 0:
             data = self._held_lines.popleft()
             if data['endpoint'] == '_' and data['fd'] == 'marker':
                 self._print_marker(data)
             else:
                 self._print_line(data)
-        self._pause = False
-        self._held_lines_overflow = False
 
     def feed(self, amount):
         for _ in range(0, amount):
@@ -464,6 +463,7 @@ if __name__ == "__main__":
         command_buffer = ""
         status_line_updated = True
         while True:
+            console_output.write_pending_lines()
             console_output.render_status_line()
             interact.read_key(term)
 
