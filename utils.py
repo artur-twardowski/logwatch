@@ -64,7 +64,7 @@ class TerminalRawMode:
         self._original_attrs = None
 
         self._translation = {
-            " ": "<Space>", "\r": "<Enter>", "\x7F": "<BS>",
+            " ": "<Space>", "<0d>": "<Enter>", "\x7F": "<BS>",
             "<": "<LT>", ">": "<GT>",
             "<ESC OP>": "<F1>", "<ESC O2P>": "<S-F1>",
             "<ESC OQ>": "<F2>", "<ESC O2Q>": "<S-F2>",
@@ -77,8 +77,8 @@ class TerminalRawMode:
             "<ESC [Z>": "<S-Tab>"
         }
         
-        for key in range(ord('a'), ord('z') + 1):
-            self._translation["<%02x>" % (key - 96)] = "<C-%s>" % chr(key)
+        for key in "abcdefghijklnopqrstuvwxyz":
+            self._translation["<%02x>" % (ord(key) - 96)] = "<C-%s>" % key
 
         altkeys = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         altkeys += "1234567890-=!@#$%^&*()_+]\}|;':\",./?"

@@ -120,25 +120,77 @@ class Configuration:
                     self.filters[filter_node.name] = filter_node
 
 class InteractiveModeContext:
-    def __init__(self):
+    PREDICATE_MODE = 1
+    TEXT_INPUT_MODE = 2
+    MULTI_INPUT_MODE = 3
+
+    AVAILABLE_REGISTERS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+    def __init__(self, config: Configuration):
+        self._config = config
         self._command_buffer = ""
         self._command_buffer_changed_cb = None
         self._pause_cb = None
         self._resume_cb = None
+        self._quit_cb = None
+        self._input_mode = self.PREDICATE_MODE
+        self._text_input_buffer = ""
+        self._prompt = ""
+        self._subprompts = []
+        self._position = 0
+
+        # p   - pause
+        # ap  - pause, analysis mode
+        # r   - resume
+        # q   - quit
+        # w   - set new filter in first available register
+        # 'Rs - set filter in register R
+        # 'Rx - clear filter register R
+        # 'Rd - disable filter from register R
+        # 'Re - enable filter from register R
+        # "Rs - set command in register R
+        # "Rx - clear command register R
+        # "Re - execute command from register R
+        # !R  - same as "Re
+        # <M-0>..<M-9> - same as "0e .. "9e
 
         self._syntax_tree = {
-            "p": "pause",
-            "a": {"p": "analysis-pause"},
-            "r": "resume",
+            "p": "eval",
+            "a": {"p": "eval"},
+            "r": "eval",
+            "q": "eval",
+            "w": "eval",
+            "'": {},
+            "\"": {}
         }
+
 
         for k in "0123456789":
             self._syntax_tree[k] = "continue"
 
+        for k in self.AVAILABLE_REGISTERS:
+            self._syntax_tree["'"][k] = {"s": "eval", "d": "eval", "e": "eval", "x": "eval"}
+
         self._syntax_tree_ptr = self._syntax_tree
 
-    def get_command_buffer(self):
-        return self._command_buffer
+    def get_user_input_string(self):
+        if self._input_mode == self.PREDICATE_MODE:
+            return "> " + self._command_buffer
+        elif self._input_mode == self.TEXT_INPUT_MODE:
+            return self._prompt + self._text_input_buffer
+        elif self._input_mode == self.MULTI_INPUT_MODE:
+            count = len(self._subprompts)
+            arrow = " "
+            if count > 2:
+                if self._position == 0:
+                    arrow = "\u2193" # Down arrow
+                elif self._position == count - 1:
+                    arrow = "\u2191" # Up arrow
+                else:
+                    arrow = "\u2195" # Up/down arrow
+
+            return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._position], self._text_input_buffer[self._position])
+
 
     def on_command_buffer_changed(self, callback: callable):
         self._command_buffer_changed_cb = callback
@@ -149,42 +201,131 @@ class InteractiveModeContext:
     def on_resume(self, callback: callable):
         self._resume_cb = callback
 
+    def on_quit(self, callback: callable):
+        self._quit_cb = callback
+
     def _reset_command_buffer(self):
         self._command_buffer = ""
+        self._text_input_buffer = ""
         self._syntax_tree_ptr = self._syntax_tree
 
-    def _handle_command(self, command):
-        if command == "pause":
-            self._pause_cb(False)
-        elif command == "analysis-pause":
-            self._pause_cb(True)
-        elif command == "resume":
-            self._resume_cb()
+    def _enter_text_input(self, command, prompt):
+        self._command_buffer = command
+        self._input_mode = self.TEXT_INPUT_MODE
+        self._prompt = "Regular expression: "
+
+    def _enter_predicate_mode(self):
+        self._input_mode = self.PREDICATE_MODE
+
+    def _enter_multi_mode(self, command, prompt, fields):
+        self._command_buffer = command
+        self._input_mode = self.MULTI_INPUT_MODE
+        self._prompt = prompt
+        self._subprompts = fields
+        self._position = 0
+        self._text_input_buffer = [""] * len(fields)
+
+
+    def _handle_command(self, command_params):
+        if isinstance(command_params, list):
+            command = command_params[0]
+            if len(command_params) > 1:
+                command_params = command_params[1:]
+            else:
+                command_params = []
         else:
-            print("Unhandled command: %s" % command)
+            command = command_params
+            command_params = []
+
+        counter_s = ""
+        while len(command) > 0 and command[0] >= '0' and command[0] <= '9':
+            counter_s += command[0]
+            command = command[1:]
+        if counter_s != "":
+            counter = int(counter_s)
+        else:
+            counter = 0
+
+        if command == "p":
+            self._pause_cb(False)
+        elif command == "ap":
+            self._pause_cb(True)
+        elif command == "r":
+            self._resume_cb()
+        elif command == "q":
+            self._quit_cb()
+        elif command == "w":
+            if len(command_params) == 0:
+                self._enter_multi_mode(command, "Set filter", ["Regular expression: ", "Background color: ", "Foreground color: "])
+            else:
+                print("Set filter " + command_params[0])
+                self._reset_command_buffer()
+                self._enter_predicate_mode()
+        elif command[0] == "'" and command[2] == "s":
+            if len(command_params) == 0:
+                self._enter_multi_mode(command, "Set filter '%c" % command[2], ["Regular expression: ", "Background color: ", "Foreground color: "])
+            else:
+                self._reset_command_buffer()
+                self._enter_predicate_mode()
+
+        else:
+            print("Unhandled command: %s, %s, %s" % (counter, command, command_params))
+
+    def _predicate_input(self, key):
+        if key in self._syntax_tree_ptr:
+            self._command_buffer += key
+            if isinstance(self._syntax_tree_ptr[key], dict):
+                self._syntax_tree_ptr = self._syntax_tree_ptr[key]
+            elif self._syntax_tree_ptr[key] == "continue":
+                pass  # Stay on the same level of parser tree
+            elif self._syntax_tree_ptr[key] == "eval":
+                self._handle_command(self._command_buffer)
+                if self._input_mode == self.PREDICATE_MODE:
+                    self._reset_command_buffer()
+        else:
+            self._reset_command_buffer()
+
+    def _text_input(self, key):
+        if key == "<BS>":
+            if len(self._text_input_buffer) > 0:
+                self._text_input_buffer = self._text_input_buffer[:-1]
+        elif key == "<ESC>":
+            self._input_mode = self.PREDICATE_MODE
+            self._reset_command_buffer()
+        elif key == "<Enter>":
+            self._handle_command([self._command_buffer, self._text_input_buffer])
+        else:
+            self._text_input_buffer += key
+
+    def _multi_input(self, key):
+        if key == "<BS>":
+            if len(self._text_input_buffer[self._position]) > 0:
+                self._text_input_buffer[self._position] = self._text_input_buffer[self._position][:-1]
+        elif key == "<ESC>":
+            self._input_mode = self.PREDICATE_MODE
+            self._reset_command_buffer()
+        elif key == "<Enter>":
+            self._handle_command([self._command_buffer] + self._text_input_buffer)
+        elif key in ["<Up>"]:
+            if self._position > 0:
+                self._position -= 1
+        elif key in ["<Down>"]:
+            if self._position < len(self._subprompts) - 1:
+                self._position += 1
+        else:
+            self._text_input_buffer[self._position] += key
 
     def read_key(self, term:TerminalRawMode):
         key = term.read_key()
         if key != "":
-            if key == "<C-c>":
-                raise KeyboardInterrupt()
-            else:
-                if key in self._syntax_tree_ptr:
-                    if isinstance(self._syntax_tree_ptr[key], dict):
-                        self._syntax_tree_ptr = self._syntax_tree_ptr[key]
-                        self._command_buffer += key
-                    elif self._syntax_tree_ptr[key] == "continue":
-                        self._command_buffer += key
-                        # Stay on the same level of parser tree
-                    else:
-                        self._handle_command(self._syntax_tree_ptr[key])
-                        self._reset_command_buffer()
-                else:
-                    self._reset_command_buffer()
+            if self._input_mode == self.PREDICATE_MODE:
+                self._predicate_input(key)
+            elif self._input_mode == self.TEXT_INPUT_MODE:
+                self._text_input(key)
+            elif self._input_mode == self.MULTI_INPUT_MODE:
+                self._multi_input(key)
 
-                self._command_buffer_changed_cb(self._command_buffer)
-
-
+            self._command_buffer_changed_cb(self._command_buffer)
 
 class ConsoleOutput:
     def __init__(self, config: Configuration, formatter: Formatter, term: TerminalRawMode, interactive: InteractiveModeContext):
@@ -296,7 +437,7 @@ class ConsoleOutput:
                 term.write("RUN", flush=False)
 
             term.write(" ")
-            term.write(self._interact.get_command_buffer())
+            term.write(self._interact.get_user_input_string())
             self._status_line_req_update = False
 
     def notify_status_line_changed(self):
@@ -432,14 +573,18 @@ def pause_callback(console_output, analysis_mode):
 def resume_callback(console_output):
     console_output.resume()
 
+def quit_callback():
+    raise KeyboardInterrupt
+
 if __name__ == "__main__":
     set_log_level(3)
     info("*** LOGVIEW v%s" % VERSION)
-    term = TerminalRawMode()
-    interact = InteractiveModeContext()
-    term.enter_raw_mode()
     config = read_args(argv[1:])
     set_log_level(config.log_level)
+
+    term = TerminalRawMode()
+    interact = InteractiveModeContext(config)
+    term.enter_raw_mode()
 
     formatter = Formatter()
     console_output = ConsoleOutput(config, formatter, term, interact)
@@ -448,6 +593,7 @@ if __name__ == "__main__":
     interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
+    interact.on_quit(lambda: quit_callback())
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
         formatter.add_endpoint_format(endpoint_name, endpoint_format)
