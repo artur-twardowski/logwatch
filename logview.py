@@ -119,16 +119,85 @@ class Configuration:
                     filter_node = self._parse_filter_node(format)
                     self.filters[filter_node.name] = filter_node
 
+class InteractiveModeContext:
+    def __init__(self):
+        self._command_buffer = ""
+        self._command_buffer_changed_cb = None
+        self._pause_cb = None
+        self._resume_cb = None
+
+        self._syntax_tree = {
+            "p": "pause",
+            "a": {"p": "analysis-pause"},
+            "r": "resume",
+        }
+
+        for k in "0123456789":
+            self._syntax_tree[k] = "continue"
+
+        self._syntax_tree_ptr = self._syntax_tree
+
+    def get_command_buffer(self):
+        return self._command_buffer
+
+    def on_command_buffer_changed(self, callback: callable):
+        self._command_buffer_changed_cb = callback
+
+    def on_pause(self, callback: callable):
+        self._pause_cb = callback
+
+    def on_resume(self, callback: callable):
+        self._resume_cb = callback
+
+    def _reset_command_buffer(self):
+        self._command_buffer = ""
+        self._syntax_tree_ptr = self._syntax_tree
+
+    def _handle_command(self, command):
+        if command == "pause":
+            self._pause_cb(False)
+        elif command == "analysis-pause":
+            self._pause_cb(True)
+        elif command == "resume":
+            self._resume_cb()
+        else:
+            print("Unhandled command: %s" % command)
+
+    def read_key(self, term:TerminalRawMode):
+        key = term.read_key()
+        if key != "":
+            if key == "<C-c>":
+                raise KeyboardInterrupt()
+            else:
+                if key in self._syntax_tree_ptr:
+                    if isinstance(self._syntax_tree_ptr[key], dict):
+                        self._syntax_tree_ptr = self._syntax_tree_ptr[key]
+                        self._command_buffer += key
+                    elif self._syntax_tree_ptr[key] == "continue":
+                        self._command_buffer += key
+                        # Stay on the same level of parser tree
+                    else:
+                        self._handle_command(self._syntax_tree_ptr[key])
+                        self._reset_command_buffer()
+                else:
+                    self._reset_command_buffer()
+
+                self._command_buffer_changed_cb(self._command_buffer)
+
+
+
 class ConsoleOutput:
-    def __init__(self, config: Configuration, formatter: Formatter, term: TerminalRawMode):
+    def __init__(self, config: Configuration, formatter: Formatter, term: TerminalRawMode, interactive: InteractiveModeContext):
         self._config = config
         self._formatter = formatter
         self._terminal = term
+        self._interact = interactive
         self._held_lines = deque()
         self._max_held_lines = 5000
         self._pause = False
         self._held_lines_overflow = False
         self._drop_newest_lines = False
+        self._status_line_req_update = True
 
     def set_max_held_lines(self, size):
         if size is not None:
@@ -146,18 +215,17 @@ class ConsoleOutput:
         if not self._config.filtered_mode:
             self._terminal.reset_current_line()
             self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
-            status_line_updated = True
+            self._status_line_req_update = True
         else:
             for name, filter in self._config.filters.items():
                 if filter.enabled and filter.match(data['data']):
                     data['filter'] = name
                     self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
-                    status_line_updated = True
+                    self._status_line_req_update = True
 
     def _print_marker(self, data):
-        global status_line_updated
         self._terminal.write_line(self._formatter.format_line(self._config.marker_format, data))
-        status_line_updated = True
+        self._status_line_req_update = True
 
     def _hold(self, data):
         drop_line = False
@@ -179,8 +247,10 @@ class ConsoleOutput:
     def print_line(self, data):
         if self._pause:
             self._hold(data)
+            self._status_line_req_update = True
         else:
             self._print_line(data)
+            self._status_line_req_update = True
 
     def print_marker(self, data):
         data['data'] = data['name']
@@ -213,6 +283,26 @@ class ConsoleOutput:
                 self._print_marker(data)
             else:
                 self._print_line(data)
+
+    def render_status_line(self):
+        if self._status_line_req_update:
+            term.reset_current_line("43;30")
+            if self._pause:
+                if self._drop_newest_lines:
+                    term.write("A-PAUSE", flush=False)
+                else:
+                    term.write("PAUSE", flush=False)
+                term.write(" (%d/%d)" % (len(self._held_lines), self._max_held_lines))
+            else:
+                term.write("RUN", flush=False)
+
+            term.write(" ")
+            term.write(self._interact.get_command_buffer())
+            self._status_line_req_update = False
+
+    def notify_status_line_changed(self):
+        self._status_line_req_update = True
+
 
 class TCPClient(GenericTCPClient):
     def __init__(self, config: Configuration, cout: ConsoleOutput):
@@ -292,14 +382,6 @@ def process_command(client_socket, console_output, formatter, config, inp):
 
     if command == "marker":
         client_socket.send_enc({"type": "set-marker", "name": argument})
-    elif command == "pause":
-        if argument.startswith('a'): # 'a' stands for "analysis mode"
-            console_output.set_drop_newest_lines_policy(True)
-        else:
-            console_output.set_drop_newest_lines_policy(False)
-        console_output.pause()
-    elif command == "resume":
-        console_output.resume()
     elif command == "feed":
         if argument == "":
             num_lines = 10
@@ -344,17 +426,29 @@ def process_command(client_socket, console_output, formatter, config, inp):
     elif command == "disable":
         config.disable_filter(argument)
 
+def pause_callback(console_output, analysis_mode):
+    console_output.set_drop_newest_lines_policy(analysis_mode)
+    console_output.pause()
+
+def resume_callback(console_output):
+    console_output.resume()
+
 if __name__ == "__main__":
     set_log_level(3)
     info("*** LOGVIEW v%s" % VERSION)
     term = TerminalRawMode()
+    interact = InteractiveModeContext()
     term.enter_raw_mode()
     config = read_args(argv[1:])
     set_log_level(config.log_level)
 
     formatter = Formatter()
-    console_output = ConsoleOutput(config, formatter, term)
+    console_output = ConsoleOutput(config, formatter, term, interact)
     console_output.set_max_held_lines(config.max_held_lines)
+
+    interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
+    interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
+    interact.on_resume(lambda: resume_callback(console_output))
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
         formatter.add_endpoint_format(endpoint_name, endpoint_format)
@@ -370,21 +464,8 @@ if __name__ == "__main__":
         command_buffer = ""
         status_line_updated = True
         while True:
-            if status_line_updated:
-                term.reset_current_line("0")
-                term.write(command_buffer)
-                status_line_updated = False
-
-            key = term.read_key()
-            if key != "":
-                if key == "<ESC>":
-                    command_buffer = ""
-                else:
-                    command_buffer += key
-                status_line_updated = True
-
-            if command_buffer == "<C-c>":
-                raise KeyboardInterrupt()
+            console_output.render_status_line()
+            interact.read_key(term)
 
             #command = input()
             #if command == "" and last_command is not None:
