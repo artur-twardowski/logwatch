@@ -7,9 +7,12 @@ from time import sleep
 from collections import deque
 from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
+from utils import TerminalRawMode
 from formatter import Formatter, Format, resolve_color
 import yaml
 import re
+
+status_line_updated = True
 
 class Filter:
     def __init__(self):
@@ -117,9 +120,10 @@ class Configuration:
                     self.filters[filter_node.name] = filter_node
 
 class ConsoleOutput:
-    def __init__(self, config: Configuration, formatter: Formatter):
+    def __init__(self, config: Configuration, formatter: Formatter, term: TerminalRawMode):
         self._config = config
         self._formatter = formatter
+        self._terminal = term
         self._held_lines = deque()
         self._max_held_lines = 5000
         self._pause = False
@@ -137,16 +141,23 @@ class ConsoleOutput:
         self._drop_newest_lines = value
 
     def _print_line(self, data):
+        global status_line_updated
+        
         if not self._config.filtered_mode:
-            print(self._formatter.format_line(self._config.line_format, data))
+            self._terminal.reset_current_line()
+            self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
+            status_line_updated = True
         else:
             for name, filter in self._config.filters.items():
                 if filter.enabled and filter.match(data['data']):
                     data['filter'] = name
-                    print(self._formatter.format_line(self._config.line_format, data))
+                    self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
+                    status_line_updated = True
 
     def _print_marker(self, data):
-        print(self._formatter.format_line(self._config.marker_format, data))
+        global status_line_updated
+        self._terminal.write_line(self._formatter.format_line(self._config.marker_format, data))
+        status_line_updated = True
 
     def _hold(self, data):
         drop_line = False
@@ -336,11 +347,13 @@ def process_command(client_socket, console_output, formatter, config, inp):
 if __name__ == "__main__":
     set_log_level(3)
     info("*** LOGVIEW v%s" % VERSION)
+    term = TerminalRawMode()
+    term.enter_raw_mode()
     config = read_args(argv[1:])
     set_log_level(config.log_level)
 
     formatter = Formatter()
-    console_output = ConsoleOutput(config, formatter)
+    console_output = ConsoleOutput(config, formatter, term)
     console_output.set_max_held_lines(config.max_held_lines)
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
@@ -354,17 +367,35 @@ if __name__ == "__main__":
         client.run()
         client.send_enc({'type': 'get-late-join-records'})
 
-        last_command = None
+        command_buffer = ""
+        status_line_updated = True
         while True:
-            command = input()
-            if command == "" and last_command is not None:
-                command = last_command
-            if command != "":
-                process_command(client, console_output, formatter, config, command)
-                last_command = command
+            if status_line_updated:
+                term.reset_current_line("0")
+                term.write(command_buffer)
+                status_line_updated = False
+
+            key = term.read_key()
+            if key != "":
+                if key == "<ESC>":
+                    command_buffer = ""
+                else:
+                    command_buffer += key
+                status_line_updated = True
+
+            if command_buffer == "<C-c>":
+                raise KeyboardInterrupt()
+
+            #command = input()
+            #if command == "" and last_command is not None:
+            #    command = last_command
+            #if command != "":
+            #    process_command(client, console_output, formatter, config, command)
+            #    last_command = command
     except ConnectionRefusedError:
         error("Could not connect to the server: connection refused")
-        exit(1)
     except KeyboardInterrupt:
         pass
-    client.stop()
+    finally:
+        client.stop()
+        term.exit_raw_mode()

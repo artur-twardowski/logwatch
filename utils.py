@@ -98,7 +98,7 @@ class TerminalRawMode:
         new_attrs[self.CFLAG] |= termios.CS8
         new_attrs[self.LFLAG] &= ~(termios.ECHO | termios.ICANON | termios.IEXTEN | termios.ISIG)
         new_attrs[self.CC][termios.VMIN] = 0
-        new_attrs[self.CC][termios.VTIME] = 1
+        new_attrs[self.CC][termios.VTIME] = 0
 
         termios.tcsetattr(self._fd, termios.TCSAFLUSH, new_attrs)
 
@@ -146,6 +146,10 @@ class TerminalRawMode:
 
     def write_line(self, line):
         stdout.write("%s\r\n" % line)
+
+    def reset_current_line(self, format="0"):
+        # Move to first column, reset formatting, clear till the end of line
+        stdout.write("\x1b[G\x1b[%sm\x1b[K" % format)
 
 if __name__ == "__main__":
     rawmode = TerminalRawMode()
