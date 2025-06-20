@@ -37,7 +37,6 @@ views:
     max-held-lines: 5000
 
   filtered:
-    socket-port: 2208
     line-format: "{format:filter}[{filter}] {fd} {seq:6} {time}{format:reset} {data}"
     filtered: true
     formats:
@@ -45,3 +44,16 @@ views:
         background-color: blue7
         foreground-color: black
         enabled: true
+
+layouts:
+  tmux:
+    engine: tmux
+    layout: classic-horizontal
+    panels:
+      - view: main
+      - view: filtered
+        filters-panel: true
+        size: 12
+      - shell: ""
+        size: 8
+
