@@ -36,6 +36,12 @@ def error(message):
         print("\x1b[1;31mERROR: %s\x1b[0m" % message)
 
 
+def lw_assert(condition, message_on_error):
+    if not condition:
+        error(message_on_error)
+        exit(1)
+
+
 def pop_args(arg_queue, argument, *names):
     if arg_queue.qsize() < len(names):
         if len(names) == 1:
@@ -81,7 +87,7 @@ class TerminalRawMode:
             self._translation["<%02x>" % (ord(key) - 96)] = "<C-%s>" % key
 
         altkeys = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-        altkeys += "1234567890-=!@#$%^&*()_+]\}|;':\",./?"
+        altkeys += "1234567890-=!@#$%^&*()_+]\\}|;':\",./?"
 
         for altkey in altkeys:
             self._translation["<ESC %s>" % altkey] = "<M-%s>" % altkey
