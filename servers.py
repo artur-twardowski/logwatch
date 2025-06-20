@@ -4,11 +4,13 @@ from types import SimpleNamespace
 import threading as thrd
 from utils import debug, info, error
 from time import sleep
+import os
 
 
 class GenericTCPServer:
-    def __init__(self, port):
+    def __init__(self, port=None, filename=None):
         self._port = port
+        self._filename = filename
         self._enabled = True
         self._selector = selectors.DefaultSelector()
         self._listen_thread = None
@@ -57,15 +59,27 @@ class GenericTCPServer:
                     sock.close()
 
     def _listen_worker(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock.bind(("127.0.0.1", self._port))
-        except OSError:
-            error("Port %d is already in use" % self._port)
+        if self._port is not None:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                sock.bind(("127.0.0.1", self._port))
+                info("Listening on TCP port %d" % self._port)
+            except OSError:
+                error("Port %d is already in use" % self._port)
+                self._enabled = False
+        elif self._filename is not None:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                sock.bind(self._filename)
+                info("Listening on socket file %s" % self._filename)
+            except OSError:
+                error("Could not open file %s" % self._filename)
+                self._enabled = False
+        else:
+            error("Either port number or socket file name must be specified")
             self._enabled = False
 
         sock.listen()
-        info("Listening on port %d" % self._port)
         sock.setblocking(False)
         self._selector.register(sock, selectors.EVENT_READ, data=None)
 
@@ -77,6 +91,9 @@ class GenericTCPServer:
                 else:
                     self._serve(key.fileobj, key.data, mask)
             sleep(0.01)
+
+        if self._filename is not None:
+            os.unlink(self._filename)
 
     def broadcast(self, data):
         debug("Broadcasting message %s" % data)
