@@ -5,7 +5,7 @@ from utils import pop_args, info, warning, set_log_level, VERSION
 from utils import lw_assert
 from queue import Queue
 import yaml
-from subprocess import Popen
+import subprocess as sp
 
 class Configuration:
     def __init__(self):
@@ -65,16 +65,16 @@ def instantiate_tmux_layout(config: dict, config_file_name):
 
         if "view" in panel_config:
             cmdline_lwview = "./lwview.py -c %s %s" % (config_file_name, panel_config['view'])
-            Popen(cmdline_main_pane + [cmdline_lwview])
+            sp.run(cmdline_main_pane + [cmdline_lwview])
         elif "command" in panel_config:
-            Popen(cmdline_main_pane + [panel_config["command"]])
+            sp.run(cmdline_main_pane + [panel_config["command"]])
         else:
             warning("Either \"view\" or \"shell\" must be provided for panel %d" % panel_ix)
 
         if "filters-panel" in panel_config and panel_config["filters-panel"]:
-            Popen(["tmux", "split-window", "-hd", "-l", "40", "sh"])
+            sp.run(["tmux", "split-window", "-hd", "-l", "40", "sh"])
 
-        Popen(["tmux", "select-pane", "-D"])
+        sp.run(["tmux", "select-pane", "-D"])
 
 def instantiate_layout(layout_config, config_file_name):
     ENGINES = {
