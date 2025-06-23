@@ -175,7 +175,7 @@ class InteractiveModeContext:
 
     def get_user_input_string(self):
         if self._input_mode == self.PREDICATE_MODE:
-            return "> " + self._command_buffer
+            return "\u21c9 " + self._command_buffer
         elif self._input_mode == self.TEXT_INPUT_MODE:
             return self._prompt + self._text_input_buffer
         elif self._input_mode == self.MULTI_INPUT_MODE:
@@ -429,12 +429,12 @@ class ConsoleOutput:
             term.reset_current_line("43;30")
             if self._pause:
                 if self._drop_newest_lines:
-                    term.write("A-PAUSE", flush=False)
+                    term.write("\u2507\u2507", flush=False)
                 else:
-                    term.write("PAUSE", flush=False)
-                term.write(" (%d/%d)" % (len(self._held_lines), self._max_held_lines))
+                    term.write("\u2503\u2503", flush=False) # Pause character
+                term.write("%3d%%" % (len(self._held_lines) * 100 / self._max_held_lines))
             else:
-                term.write("RUN", flush=False)
+                term.write("\u2b9e     ", flush=False)
 
             term.write(" ")
             term.write(self._interact.get_user_input_string())
