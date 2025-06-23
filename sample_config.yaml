@@ -48,12 +48,11 @@ views:
 layouts:
   tmux:
     engine: tmux
+    run-server: true
     layout: classic-horizontal
     panels:
       - view: main
       - view: filtered
         filters-panel: true
         size: 12
-      - shell: ""
-        size: 8
 
