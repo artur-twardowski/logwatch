@@ -18,6 +18,7 @@ class SubprocessCommunication:
         self._stdin_buffer = Queue()
         self._servers = servers
         self._worker_thread = None
+        self._active = False
 
     def run(self):
         self._worker_thread = thrd.Thread(target=self._worker)
@@ -27,6 +28,7 @@ class SubprocessCommunication:
         self._worker_thread.join()
 
     def _worker(self):
+        self._active = True
         info("Endpoint %s: running command: %s" % (self._endpoint_name, self._command_line))
         proc = sp.Popen(self._command_line,
                         shell=True,
@@ -42,11 +44,17 @@ class SubprocessCommunication:
         stdout_thread.start()
         stderr_thread.start()
         stdin_thread.start()
-        proc.wait()
+        exitcode = proc.wait()
 
         stdout_thread.join()
         stderr_thread.join()
         stdin_thread.join()
+
+        info("Endpoint %s: command returned with exit code %d" % (self._endpoint_name, exitcode))
+        self._active = False
+
+    def is_active(self):
+        return self._active
 
     def _receiver(self, stream, fd):
         for line in stream:
@@ -89,6 +97,18 @@ class ServerManager:
     def run_all(self):
         for server in self._servers:
             server.run()
+
+        sleep(0.2)
+        result = False
+        for server in self._servers:
+            if server.is_active():
+                result = True
+                break
+        return result
+
+    def stop_all(self):
+        for server in self._servers:
+            server.stop()
 
     def broadcast_data(self, endpoint_name, fd, data):
         today = datetime.now()
@@ -194,6 +214,7 @@ def read_args(args):
 
     return config
 
+
 class TCPServer(GenericTCPServer):
     def __init__(self, port, server_manager: ServerManager):
         super().__init__(port)
@@ -220,9 +241,19 @@ class TCPServer(GenericTCPServer):
             else:
                 self._recv_buffer.append(byte)
 
+
+def any_active(subprocesses: list):
+    result = False
+    for subproc in subprocesses:
+        if subproc.is_active():
+            result = True
+            break
+    return result
+
+
 if __name__ == "__main__":
     set_log_level(3)
-    info("*** LOGSERVER v%s" % VERSION)
+    info("*** LOGWATCH v%s: logserver" % VERSION)
     config = read_args(argv[1:])
     server_manager = ServerManager()
     server_manager.set_late_join_buf_size(config.late_join_buf_size)
@@ -230,7 +261,10 @@ if __name__ == "__main__":
     if config.socket is not None:
         server_manager.register(TCPServer(config.socket, server_manager))
 
-    server_manager.run_all()
+    if not server_manager.run_all():
+        error("Failed to start the server")
+        exit(1)
+
 
     subprocesses = []
     for endpoint_name, command in config.subprocesses:
@@ -239,7 +273,9 @@ if __name__ == "__main__":
         subproc.run()
 
     ix = 0
-    while True:
+    while any_active(subprocesses):
         server_manager.broadcast_keepalive(ix)
-        ix += 0
+        ix += 1
         sleep(1)
+    info("All executed subprocesses have ended, stopping the server")
+    server_manager.stop_all()

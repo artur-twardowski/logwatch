@@ -117,3 +117,6 @@ class GenericTCPServer:
     def on_client_connected(self, addr, conn):
         pass
 
+    def is_active(self):
+        return self._enabled
+
