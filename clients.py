@@ -21,7 +21,8 @@ class GenericTCPClient:
 
     def stop(self):
         self._enabled = False
-        self._receiver_thread.join()
+        if self._receiver_thread is not None:
+            self._receiver_thread.join()
 
     def _receiver_worker(self):
         while self._enabled:
