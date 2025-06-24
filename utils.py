@@ -56,6 +56,16 @@ def pop_args(arg_queue, argument, *names):
     return retval
 
 
+def parse_yes_no_option(arg_name: str, arg_value: str):
+    if arg_value.lower() == "no":
+        return False
+    elif arg_value.lower() == "yes":
+        return True
+    else:
+        error("Incorrect argument for %s (\"%s\"); valid values are \"yes\" or \"no\" (case-insensitive)" % (arg_name, arg_value))
+        exit(1)
+
+
 class TerminalRawMode:
     IFLAG = 0
     OFLAG = 1

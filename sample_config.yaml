@@ -1,6 +1,7 @@
 server:
   socket-port: 2207
   late-joiners-buffer-size: 1000
+  stay-active: false
   endpoints:
     - type: "subprocess"
       name: "command"

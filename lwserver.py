@@ -10,6 +10,7 @@ from time import sleep
 from datetime import datetime
 from servers import GenericTCPServer
 from utils import pop_args, error, info, set_log_level, VERSION
+from utils import lw_assert, parse_yes_no_option
 
 class SubprocessCommunication:
     def __init__(self, command_line, endpoint_name, servers):
@@ -162,30 +163,28 @@ class Configuration:
         self.socket = None
         self.websocket = None
         self.late_join_buf_size = None
+        self.stay_active = False
 
     def read(self, filename):
         with open(filename, 'r') as file:
             data = yaml.safe_load(file)
-            if 'server' not in data:
-                error("Configuration file does not have \"server\" section")
-                exit(1)
+            lw_assert("server" in data, "Configuration file does not have \"server\" section")
+
+            server_conf = data['server']
             
-            self.socket = data['server'].get('socket-port', None)
-            self.websocket = data['server'].get('websocket-port', None)
-            self.late_join_buf_size = data['server'].get('late-joiners-buffer-size', None)
+            self.socket = server_conf.get('socket-port', None)
+            self.websocket = server_conf.get('websocket-port', None)
+            self.late_join_buf_size = server_conf.get('late-joiners-buffer-size', None)
+            self.stay_active = server_conf.get('stay-active', self.stay_active)
 
             for endpoint in data['server'].get('endpoints', []):
-                if 'type' not in endpoint:
-                    error("Endpoint type must be provided")
-                    exit(1)
-                if 'name' not in endpoint:
-                    error("Endpoint name must be provided")
-                    exit(1)
+                lw_assert("type" in endpoint, "Endpoint type must be provided")
+                lw_assert("name" in endpoint, "Endpoint name must be provided")
 
                 if endpoint['type'] == 'subprocess':
-                    if 'command' not in endpoint:
-                        error("Subprocess endpoint must have a command specified")
+                    lw_assert("command" in endpoint, "Subprocess endpoint must have a command specified")
                     self.subprocesses.append((endpoint['name'], endpoint['command']))
+
 
 def read_args(args):
     arg_queue = Queue()
@@ -202,6 +201,9 @@ def read_args(args):
         elif arg in ['-S', '--socket']:
             port, = pop_args(arg_queue, arg, "port")
             config.socket = int(port)
+        elif arg in ['-a', '--stay-active']:
+            stay_active_s, = pop_args(arg_queue, arg, "yes/no")
+            config.stay_active = parse_yes_no_option(arg, stay_active_s)
         elif arg in ['-c', '--config']:
             config_file, = pop_args(arg_queue, arg, "file-name")
             config.read(config_file)
@@ -272,10 +274,21 @@ if __name__ == "__main__":
         subprocesses.append(subproc)
         subproc.run()
 
-    ix = 0
-    while any_active(subprocesses):
-        server_manager.broadcast_keepalive(ix)
-        ix += 1
-        sleep(1)
-    info("All executed subprocesses have ended, stopping the server")
+    keepalive_counter = 0
+    while True:
+        try:
+            if keepalive_counter % 10 == 0:
+                server_manager.broadcast_keepalive(keepalive_counter / 10)
+            keepalive_counter += 1
+            sleep(0.1)
+
+            if not config.stay_active and not any_active(subprocesses):
+                info("No subprocesses are running, stopping the server")
+                break
+        except KeyboardInterrupt:
+            info("User-triggered termination, stopping the server")
+            break
+        except Exception as ex:
+            error("Server error: %s. Stopping the server" % ex)
+
     server_manager.stop_all()

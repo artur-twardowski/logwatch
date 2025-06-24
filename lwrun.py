@@ -2,7 +2,7 @@
 
 from sys import argv
 from utils import pop_args, error, info, warning, set_log_level, VERSION
-from utils import lw_assert
+from utils import lw_assert, parse_yes_no_option
 from queue import Queue
 from time import sleep
 import yaml
@@ -45,13 +45,7 @@ def read_args(args):
             config.read(config_file, layout_name)
         elif arg in ['-s', '--run-server']:
             run_server_s, = pop_args(arg_queue, arg, "no/yes")
-            if run_server_s.lower() == "no":
-                config.run_server = False
-            elif run_server_s.lower() == "yes":
-                config.run_server = True
-            else:
-                error("Incorrect argument for %s (\"%s\"); valid values are \"yes\" or \"no\" (case-insensitive)" % (arg, run_server_s))
-                exit(1)
+            config.run_server = parse_yes_no_option(arg, run_server_s)
 
         elif arg in ['-v', '--verbose']:
             config.log_level += 1
