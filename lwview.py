@@ -13,8 +13,6 @@ from view.configuration import Configuration, Filter
 import yaml
 import re
 
-status_line_updated = True
-
 class InteractiveModeContext:
     PREDICATE_MODE = 1
     TEXT_INPUT_MODE = 2
@@ -247,8 +245,6 @@ class ConsoleOutput:
         self._drop_newest_lines = value
 
     def _print_line(self, data):
-        global status_line_updated
-        
         if not self._config.filtered_mode:
             self._terminal.reset_current_line()
             self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
@@ -257,6 +253,7 @@ class ConsoleOutput:
             for name, filter in self._config.filters.items():
                 if filter.enabled and filter.match(data['data']):
                     data['filter'] = name
+                    self._terminal.reset_current_line()
                     self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
                     self._status_line_req_update = True
 
@@ -441,7 +438,6 @@ if __name__ == "__main__":
         client.send_enc({'type': 'get-late-join-records'})
 
         command_buffer = ""
-        status_line_updated = True
         while True:
             console_output.write_pending_lines()
             console_output.render_status_line()
