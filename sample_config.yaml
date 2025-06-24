@@ -21,7 +21,7 @@ views:
     show-endpoints: all
     formats:
       - endpoint: "command"
-        stdout:
+        default:
           background-color: none
           foreground-color: white
         stderr:
@@ -31,17 +31,24 @@ views:
         marker:
           background-color: green1
           foreground-color: green7
+      - register: 'x'
+        regex: ".py"
+        background-color: blue1
+        foreground-color: blue8
+        enabled: true
 
-    line-format: "{format:endpoint}[{endpoint:8}] {seq:_6} {time}\u2503 {data}"
+
+    line-format: "{format:filter}{watch-symbol}[{endpoint:8}] {seq:_6} {time}\u2503 {format:default}{data}"
     marker-format: "{format:endpoint}[ MARKER ] >>>>>> {time}\u2503 {name} <<<<<<"
     filtered: false
     max-held-lines: 5000
 
   filtered:
-    line-format: "{format:filter}[{filter}] {fd} {seq:6} {time}{format:reset} {data}"
+    line-format: "{format:filter}{watch-symbol} {fd} {seq:6} {time}{format:reset} {data}"
     filtered: true
     formats:
-      - regex: '.py'
+      - register: 'p'
+        regex: '.py'
         background-color: blue7
         foreground-color: black
         enabled: true

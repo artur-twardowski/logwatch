@@ -1,5 +1,5 @@
 import re
-from utils import debug, error, warning
+from utils import debug, error
 
 COLOR_MAP = {
     "red1": 16 + 1*36 + 0*6 + 0,
@@ -92,6 +92,21 @@ COLOR_MAP = {
     "none": -1
 }
 
+def get_default_register_format(register):
+    DEFAULT_FORMATS = {
+        '0': (COLOR_MAP['blue3'], COLOR_MAP['blue9']),
+        '1': (COLOR_MAP['green1'], COLOR_MAP['green6']),
+        '2': (COLOR_MAP['cyan1'], COLOR_MAP['cyan6']),
+        '3': (COLOR_MAP['red1'], COLOR_MAP['red6']),
+        '4': (COLOR_MAP['magenta1'], COLOR_MAP['magenta6']),
+        '5': (COLOR_MAP['yellow1'], COLOR_MAP['yellow6']),
+        '6': (COLOR_MAP['grey4'], COLOR_MAP['grey23']),
+    }
+
+    if register in DEFAULT_FORMATS:
+        return DEFAULT_FORMATS[register]
+    else:
+        return DEFAULT_FORMATS['1']
 
 def pad_left(string, char, size):
     while len(string) < size:
@@ -121,19 +136,19 @@ class Format:
 
     def __init__(self):
         self.background_color = {
-            "stdout": self.DEFAULT_BG_COLOR,
+            "default": self.DEFAULT_BG_COLOR,
             "stderr": resolve_color("red1"),
             "stdin": resolve_color("yellow1")
         }
         self.foreground_color = {
-            "stdout": self.DEFAULT_FG_COLOR,
+            "default": self.DEFAULT_FG_COLOR,
             "stderr": self.DEFAULT_FG_COLOR,
             "stdin": resolve_color("yellow7")
         }
 
-    def get(self, fd):
+    def get(self, fd="default"):
         if fd not in self.background_color:
-            warning("No format defined for fd=%s" % fd)
+            fd = "default"
         bg_color = self.background_color.get(fd, self.DEFAULT_BG_COLOR)
         fg_color = self.foreground_color.get(fd, self.DEFAULT_FG_COLOR)
         return bg_color, fg_color
@@ -144,6 +159,12 @@ def ansi_format(bg_color, fg_color):
         return "0;38;5;%d" % fg_color
     else:
         return "48;5;%d;38;5;%d" % (bg_color, fg_color)
+
+
+def ansi_format1(colors):
+    assert isinstance(colors, (list, tuple))
+    assert len(colors) == 2
+    return ansi_format(colors[0], colors[1])
 
 
 def subscript(s):
@@ -172,11 +193,16 @@ def superscript(s):
     return result
 
 
+def render_watch_register(r):
+    return "\u257a%c\u2578" % r
+
+
 class Formatter:
     FORMATTING_TAG_DELIM = "\x10"
     FORMATTING_RESET = "R"
     FORMATTING_ENDPOINT = "E"
     FORMATTING_FILTER = "F"
+    FORMATTING_DEFAULT = "D"
 
     def __init__(self):
         self._re_tag = re.compile(r'(\{([A-Za-z0-9_-]+)(?::([^}]+))?\})')
@@ -189,10 +215,17 @@ class Formatter:
             name, format.background_color, format.foreground_color))
         self._endpoint_formats[name] = format
 
-    def add_filter_format(self, name, format: Format):
+    def add_filter_format(self, register, format: Format):
         debug("Adding formatting for filter %s: background=%s, foreground=%s" % (
-            name, format.background_color, format.foreground_color))
-        self._filter_formats[name] = format
+            register, format.background_color, format.foreground_color))
+        self._filter_formats[register] = format
+
+    def delete_watch_format(self, register):
+        if register in self._filter_formats:
+            del self._filter_formats[register]
+
+    def get_filters(self):
+        return self._filter_formats
 
     def format_line(self, fmt, fields):
         tags = self._re_tag.findall(fmt)
@@ -211,6 +244,9 @@ class Formatter:
 
                 elif param == "filter":
                     replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_FILTER + "\x1b[0m"
+
+                elif param =="default":
+                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_DEFAULT + "\x1b[0m"
 
             elif key in fields:
                 try:
@@ -246,17 +282,23 @@ class Formatter:
         #     as configured
         reset_fmt = Format.DEFAULT_BG_COLOR, Format.DEFAULT_FG_COLOR
 
+        if 'watch' in fields and fields['watch'] in self._filter_formats:
+            watch_fmt = self._filter_formats[fields['watch']].get(fields['fd'])
+            default_fmt = watch_fmt
+        else:
+            watch_fmt = reset_fmt
+            default_fmt = None
+
         if fields['endpoint'] in self._endpoint_formats:
             endpoint_fmt = self._endpoint_formats[fields['endpoint']].get(fields['fd'])
+            if default_fmt is None:
+                default_fmt = endpoint_fmt
         else:
             endpoint_fmt = reset_fmt
+            default_fmt = reset_fmt
 
-        if 'filter' in fields and fields['filter'] in self._filter_formats:
-            filter_fmt = self._filter_formats[fields['filter']].get(fields['fd'])
-        else:
-            filter_fmt = reset_fmt
 
-        default_fmt = reset_fmt
+        use_format = reset_fmt
 
         data_to_format = result
         result = ""
@@ -264,11 +306,13 @@ class Formatter:
         while ch_ix < len(data_to_format):
             if data_to_format[ch_ix] == self.FORMATTING_TAG_DELIM:
                 if data_to_format[ch_ix + 1] == self.FORMATTING_RESET:
-                    default_fmt = reset_fmt
+                    use_format = reset_fmt
                 elif data_to_format[ch_ix + 1] == self.FORMATTING_ENDPOINT:
-                    default_fmt = endpoint_fmt
+                    use_format = endpoint_fmt
                 elif data_to_format[ch_ix + 1] == self.FORMATTING_FILTER:
-                    default_fmt = filter_fmt
+                    use_format = watch_fmt
+                elif data_to_format[ch_ix + 1] == self.FORMATTING_DEFAULT:
+                    use_format = default_fmt
                 ch_ix += 2
                 continue
 
@@ -279,7 +323,7 @@ class Formatter:
                     new_values = []
                     for v in values:
                         if v == "0":
-                            new_values.append("0;" + ansi_format(default_fmt[0], default_fmt[1]))
+                            new_values.append("0;" + ansi_format(use_format[0], use_format[1]))
                         else:
                             new_values.append(v)
 
@@ -296,22 +340,4 @@ class Formatter:
         result += "\x1b[K\x1b[0m"
 
         return result
-
-
-if __name__ == "__main__":
-    formatter = Formatter()
-
-    shell_fmt = Format()
-    shell_fmt.foreground_color = {"stdout": 255}
-    shell_fmt.background_color = {"stdout": 23}
-    formatter.add_endpoint_format("Shell", shell_fmt)
-
-    print(formatter.format_line("{format:endpoint}[{endpoint}] {seq:_>.6} {date} {time} |{format:endpoint} {content}", {
-        "endpoint": "Shell",
-        "date": "2023-02-09",
-        "time": "22:07:00",
-        "seq": 24601,
-        "fd": "stdout",
-        "content": "My content: \x1b[1;31mred \x1b[0mreset \x1b[1;32mgreen \x1b[0mreset"
-        }))
 

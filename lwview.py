@@ -8,12 +8,11 @@ from collections import deque
 from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
 from utils import TerminalRawMode
-from view.formatter import Formatter, resolve_color
-from view.configuration import Configuration, Filter
+from view.formatter import Formatter, resolve_color, ansi_format1, Format
+from view.formatter import render_watch_register, get_default_register_format
+from view.configuration import Configuration, Watch
 import yaml
 import re
-
-status_line_updated = True
 
 class InteractiveModeContext:
     PREDICATE_MODE = 1
@@ -29,11 +28,14 @@ class InteractiveModeContext:
         self._pause_cb = None
         self._resume_cb = None
         self._quit_cb = None
+        self._set_watch_cb = None
+        self._set_watch_enable_cb = None
         self._input_mode = self.PREDICATE_MODE
         self._text_input_buffer = ""
         self._prompt = ""
         self._subprompts = []
-        self._position = 0
+        self._buf_index = 0
+        self._context = {}
 
         # p   - pause
         # ap  - pause, analysis mode
@@ -65,9 +67,15 @@ class InteractiveModeContext:
             self._syntax_tree[k] = "continue"
 
         for k in self.AVAILABLE_REGISTERS:
-            self._syntax_tree["'"][k] = {"s": "eval", "d": "eval", "e": "eval", "x": "eval"}
+            self._syntax_tree["'"][k] = {"w": "eval", "d": "eval", "e": "eval", "x": "eval"}
 
         self._syntax_tree_ptr = self._syntax_tree
+
+    def get_modified_watch(self):
+        if "set_watch" in self._context and "register" in self._context:
+            return self._context["register"]
+        else:
+            return None
 
     def get_user_input_string(self):
         if self._input_mode == self.PREDICATE_MODE:
@@ -78,14 +86,14 @@ class InteractiveModeContext:
             count = len(self._subprompts)
             arrow = " "
             if count > 2:
-                if self._position == 0:
+                if self._buf_index == 0:
                     arrow = "\u2193" # Down arrow
-                elif self._position == count - 1:
+                elif self._buf_index == count - 1:
                     arrow = "\u2191" # Up arrow
                 else:
                     arrow = "\u2195" # Up/down arrow
 
-            return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._position], self._text_input_buffer[self._position])
+            return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._buf_index], self._text_input_buffer[self._buf_index])
 
 
     def on_command_buffer_changed(self, callback: callable):
@@ -100,39 +108,74 @@ class InteractiveModeContext:
     def on_quit(self, callback: callable):
         self._quit_cb = callback
 
+    def on_set_watch(self, callback: callable):
+        self._set_watch_cb = callback
+
+    def on_enable_watch(self, callback: callable):
+        self._set_watch_enable_cb = callback
+
     def _reset_command_buffer(self):
         self._command_buffer = ""
         self._text_input_buffer = ""
         self._syntax_tree_ptr = self._syntax_tree
 
-    def _enter_text_input(self, command, prompt):
+    def _enter_text_input(self, command, prompt, **kwargs):
         self._command_buffer = command
         self._input_mode = self.TEXT_INPUT_MODE
         self._prompt = "Regular expression: "
+        self._context = kwargs
 
-    def _enter_predicate_mode(self):
+    def _enter_predicate_mode(self, **kwargs):
         self._input_mode = self.PREDICATE_MODE
+        self._context = kwargs
 
-    def _enter_multi_mode(self, command, prompt, fields):
+    def _enter_multi_mode(self, command, prompt, fields, **kwargs):
         self._command_buffer = command
         self._input_mode = self.MULTI_INPUT_MODE
         self._prompt = prompt
-        self._subprompts = fields
-        self._position = 0
+        self._subprompts = [""] * len(fields)
         self._text_input_buffer = [""] * len(fields)
-
-
-    def _handle_command(self, command_params):
-        if isinstance(command_params, list):
-            command = command_params[0]
-            if len(command_params) > 1:
-                command_params = command_params[1:]
+        for field_ix, field in enumerate(fields):
+            if isinstance(field, (list, tuple)):
+                assert len(field) == 2
+                self._subprompts[field_ix] = field[0]
+                self._text_input_buffer[field_ix] = field[1]
             else:
-                command_params = []
-        else:
-            command = command_params
-            command_params = []
+                self._subprompts[field_ix] = field
+                self._text_input_buffer[field_ix] = ""
 
+        self._buf_index = 0
+        self._context = kwargs
+
+    def _find_first_available_watch(self):
+        for w in self.AVAILABLE_REGISTERS:
+            if w not in self._config.watches:
+                return w
+        return None
+
+    def _handle_set_watch(self, register):
+        if len(self._text_input_buffer) == 0:
+            if register in self._config.watches:
+                watch = self._config.watches[register]
+                regex = watch.regex
+                bg_color, fg_color = watch.format.get()
+            else:
+                regex = ""
+                bg_color, fg_color = get_default_register_format(register)
+            self._enter_multi_mode(self._command_buffer, "Set watch '%c" % register, [
+                ("Regular expression: ", regex),
+                ("Background color: ", str(bg_color)),
+                ("Foreground color: ", str(fg_color))],
+                register=register,
+                set_watch=True)
+        else:
+            self._set_watch_cb((self._context['register'], self._text_input_buffer[0], self._text_input_buffer[1], self._text_input_buffer[2]))
+            self._reset_command_buffer()
+            self._enter_predicate_mode()
+
+    def _handle_command(self):
+        command = self._command_buffer
+        command_params = self._text_input_buffer
         counter_s = ""
         while len(command) > 0 and command[0] >= '0' and command[0] <= '9':
             counter_s += command[0]
@@ -151,23 +194,20 @@ class InteractiveModeContext:
         elif command == "q":
             self._quit_cb()
         elif command == "w":
-            if len(command_params) == 0:
-                self._enter_multi_mode(command, "Set filter", ["Regular expression: ", "Background color: ", "Foreground color: "])
-            else:
-                print("Set filter " + command_params[0])
-                self._reset_command_buffer()
-                self._enter_predicate_mode()
-        elif command[0] == "'" and command[2] == "s":
-            if len(command_params) == 0:
-                self._enter_multi_mode(command, "Set filter '%c" % command[2], ["Regular expression: ", "Background color: ", "Foreground color: "])
-            else:
-                self._reset_command_buffer()
-                self._enter_predicate_mode()
-
+            register = self._find_first_available_watch()
+            self._handle_set_watch(register)
+        elif command[0] == "'" and command[2] == "w":
+            self._handle_set_watch(command[1])
+        elif command[0] == "'" and command[2] == "x":
+            self._set_watch_cb((command[1], '', -1, -1))
+        elif command[0] == "'" and command[2] == "d":
+            self._set_watch_enable_cb(command[1], False)
+        elif command[0] == "'" and command[2] == "e":
+            self._set_watch_enable_cb(command[1], True)
         else:
             print("Unhandled command: %s, %s, %s" % (counter, command, command_params))
 
-    def _predicate_input(self, key):
+    def _read_key_predicate_input(self, key):
         if key in self._syntax_tree_ptr:
             self._command_buffer += key
             if isinstance(self._syntax_tree_ptr[key], dict):
@@ -175,51 +215,67 @@ class InteractiveModeContext:
             elif self._syntax_tree_ptr[key] == "continue":
                 pass  # Stay on the same level of parser tree
             elif self._syntax_tree_ptr[key] == "eval":
-                self._handle_command(self._command_buffer)
+                self._handle_command()
                 if self._input_mode == self.PREDICATE_MODE:
                     self._reset_command_buffer()
         else:
             self._reset_command_buffer()
 
-    def _text_input(self, key):
-        if key == "<BS>":
+    def _on_backspace(self):
+        if isinstance(self._text_input_buffer, list):
+            if len(self._text_input_buffer[self._buf_index]) > 0:
+                self._text_input_buffer[self._buf_index] = self._text_input_buffer[self._buf_index][:-1]
+        else:
             if len(self._text_input_buffer) > 0:
                 self._text_input_buffer = self._text_input_buffer[:-1]
+
+    def _on_input(self, content):
+        if isinstance(self._text_input_buffer, list):
+                self._text_input_buffer[self._buf_index] += content
+        else:
+            self._text_input_buffer += content
+
+    def _read_key_common(self, key):
+        if key == "<BS>":
+            self._on_backspace()
+        elif key == "<Space>":
+            self._on_input(" ")
+        elif key == "<LT>":
+            self._on_input("<")
+        elif key == "<GT>":
+            self._on_input(">")
         elif key == "<ESC>":
             self._input_mode = self.PREDICATE_MODE
             self._reset_command_buffer()
         elif key == "<Enter>":
-            self._handle_command([self._command_buffer, self._text_input_buffer])
+            self._handle_command()
         else:
+            return False
+        return True
+
+    def _read_key_text_input(self, key):
+        if not self._read_key_common(key):
             self._text_input_buffer += key
 
-    def _multi_input(self, key):
-        if key == "<BS>":
-            if len(self._text_input_buffer[self._position]) > 0:
-                self._text_input_buffer[self._position] = self._text_input_buffer[self._position][:-1]
-        elif key == "<ESC>":
-            self._input_mode = self.PREDICATE_MODE
-            self._reset_command_buffer()
-        elif key == "<Enter>":
-            self._handle_command([self._command_buffer] + self._text_input_buffer)
-        elif key in ["<Up>"]:
-            if self._position > 0:
-                self._position -= 1
+    def _read_key_multi_input(self, key):
+        if key in ["<Up>"]:
+            if self._buf_index > 0:
+                self._buf_index -= 1
         elif key in ["<Down>"]:
-            if self._position < len(self._subprompts) - 1:
-                self._position += 1
-        else:
-            self._text_input_buffer[self._position] += key
+            if self._buf_index < len(self._subprompts) - 1:
+                self._buf_index += 1
+        elif not self._read_key_common(key):
+            self._text_input_buffer[self._buf_index] += key
 
-    def read_key(self, term:TerminalRawMode):
+    def read_key(self, term: TerminalRawMode):
         key = term.read_key()
         if key != "":
             if self._input_mode == self.PREDICATE_MODE:
-                self._predicate_input(key)
+                self._read_key_predicate_input(key)
             elif self._input_mode == self.TEXT_INPUT_MODE:
-                self._text_input(key)
+                self._read_key_text_input(key)
             elif self._input_mode == self.MULTI_INPUT_MODE:
-                self._multi_input(key)
+                self._read_key_multi_input(key)
 
             self._command_buffer_changed_cb(self._command_buffer)
 
@@ -247,18 +303,23 @@ class ConsoleOutput:
         self._drop_newest_lines = value
 
     def _print_line(self, data):
-        global status_line_updated
-        
-        if not self._config.filtered_mode:
+        matched_register = None
+        for register, watch in self._config.watches.items():
+            if watch.enabled and watch.match(data['data']):
+                matched_register = register
+                break
+
+        if matched_register is not None:
+            data['watch'] = matched_register
+            data['watch-symbol'] = render_watch_register(matched_register)
+        else:
+            data['watch'] = ""
+            data['watch-symbol'] = "   "
+
+        if not self._config.filtered_mode or matched_register is not None:
             self._terminal.reset_current_line()
             self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
             self._status_line_req_update = True
-        else:
-            for name, filter in self._config.filters.items():
-                if filter.enabled and filter.match(data['data']):
-                    data['filter'] = name
-                    self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
-                    self._status_line_req_update = True
 
     def _print_marker(self, data):
         self._terminal.write_line(self._formatter.format_line(self._config.marker_format, data))
@@ -332,6 +393,22 @@ class ConsoleOutput:
             else:
                 term.write("\u2b9e     ", flush=False)
 
+            changed_register = self._interact.get_modified_watch()
+
+            for register, filter_data in self._formatter.get_filters().items():
+                if register == changed_register:
+                    term.set_color_format("5")
+
+                if self._config.watches[register].enabled:
+                    term.set_color_format(ansi_format1(filter_data.get()))
+                else:
+                    term.set_color_format("43;30")
+
+                term.write(render_watch_register(register))
+                if register == changed_register:
+                    term.set_color_format("25")
+
+            term.set_color_format("43;30")
             term.write(" ")
             term.write(self._interact.get_user_input_string())
             self._status_line_req_update = False
@@ -407,6 +484,27 @@ def resume_callback(console_output):
     console_output.resume()
 
 
+def set_filter_callback(formatter: Formatter, config: Configuration, params: tuple):
+    register, regex, background, foreground = params
+    filter = Watch()
+    filter.set_regex(regex)
+    filter.enabled = True
+    filter.format.background_color = {"default": resolve_color(background)}
+    filter.format.foreground_color = {"default": resolve_color(foreground)}
+
+    if regex == "":
+        formatter.delete_watch_format(register)
+        config.delete_watch(register)
+    else:
+        formatter.add_filter_format(register, filter.format)
+        config.add_watch(register, filter)
+
+
+def set_watch_enable(config: Configuration, register: str, enabled: bool):
+    if register in config.watches:
+        config.watches[register].enabled = enabled
+
+
 def quit_callback():
     raise KeyboardInterrupt
 
@@ -427,12 +525,14 @@ if __name__ == "__main__":
     interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
+    interact.on_set_watch(lambda params: set_filter_callback(formatter, config, params))
+    interact.on_enable_watch(lambda watch, enabled: set_watch_enable(config, watch, enabled))
     interact.on_quit(lambda: quit_callback())
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
         formatter.add_endpoint_format(endpoint_name, endpoint_format)
 
-    for filter_name, filter in config.filters.items():
+    for filter_name, filter in config.watches.items():
         formatter.add_filter_format(filter_name, filter.format)
 
     try:
@@ -441,7 +541,6 @@ if __name__ == "__main__":
         client.send_enc({'type': 'get-late-join-records'})
 
         command_buffer = ""
-        status_line_updated = True
         while True:
             console_output.write_pending_lines()
             console_output.render_status_line()
