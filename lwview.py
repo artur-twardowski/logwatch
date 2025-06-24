@@ -397,77 +397,15 @@ def read_args(args):
             exit(1)
     return config
 
-def process_command(client_socket, console_output, formatter, config, inp):
-    SUPPORTED_COMMANDS = ["marker", "pause", "resume", "feed", "watch", "enable", "disable"]
-
-    inp_split = inp.split(' ', 1)
-    if len(inp_split) == 2:
-        command_short, argument = inp_split
-    else:
-        command_short, argument = (inp_split[0], "")
-    command = None
-    for match in SUPPORTED_COMMANDS:
-        if match.startswith(command_short):
-            if command is None:
-                command = match
-            else:
-                error("Command \"%s\" is ambiguous" % command_short)
-                return
-    if command is None:
-        error("No command matches \"%s\"" % command_short)
-
-    if command == "marker":
-        client_socket.send_enc({"type": "set-marker", "name": argument})
-    elif command == "feed":
-        if argument == "":
-            num_lines = 10
-        else:
-            try:
-                num_lines = int(argument)
-            except Exception:
-                error("Not a valid number: \"%s\"" % argument)
-                return
-        console_output.feed(num_lines)
-    elif command == "watch":
-        if argument.startswith(':'):
-            format, regex = argument.split(' ', 1)
-            format = format[1:]
-            if format.find(':') == -1:
-                foreground_color = format
-                background_color = "none"
-            else:
-                foreground_color, background_color = format.split(':')
-        else:
-            regex = argument
-            foreground_color = "white"
-            background_color = "none"
-
-        filter = Filter()
-        filter.enabled = True
-        filter.format.background_color["stdout"] = resolve_color(background_color)
-        filter.format.foreground_color["stdout"] = resolve_color(foreground_color)
-        filter.format.background_color["stderr"] = filter.format.background_color["stdout"]
-        filter.format.foreground_color["stderr"] = filter.format.foreground_color["stdout"]
-        filter.set_regex(regex)
-
-        filter_ix = 1
-        while ("F%d" % filter_ix) in config.filters:
-            filter_ix += 1
-        filter.name = "F%d" % filter_ix
-
-        config.register_filter(filter)
-        formatter.add_filter_format(filter.name, filter.format)
-    elif command == "enable":
-        config.enable_filter(argument)
-    elif command == "disable":
-        config.disable_filter(argument)
 
 def pause_callback(console_output, analysis_mode):
     console_output.set_drop_newest_lines_policy(analysis_mode)
     console_output.pause()
 
+
 def resume_callback(console_output):
     console_output.resume()
+
 
 def quit_callback():
     raise KeyboardInterrupt
@@ -508,13 +446,6 @@ if __name__ == "__main__":
             console_output.write_pending_lines()
             console_output.render_status_line()
             interact.read_key(term)
-
-            #command = input()
-            #if command == "" and last_command is not None:
-            #    command = last_command
-            #if command != "":
-            #    process_command(client, console_output, formatter, config, command)
-            #    last_command = command
     except ConnectionRefusedError:
         error("Could not connect to the server: connection refused")
     except KeyboardInterrupt:
