@@ -194,6 +194,9 @@ class Formatter:
             name, format.background_color, format.foreground_color))
         self._filter_formats[name] = format
 
+    def get_filters(self):
+        return self._filter_formats
+
     def format_line(self, fmt, fields):
         tags = self._re_tag.findall(fmt)
         result = fmt

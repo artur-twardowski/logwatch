@@ -8,7 +8,7 @@ from collections import deque
 from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
 from utils import TerminalRawMode
-from view.formatter import Formatter, resolve_color
+from view.formatter import Formatter, resolve_color, ansi_format, Format
 from view.configuration import Configuration, Filter
 import yaml
 import re
@@ -27,6 +27,7 @@ class InteractiveModeContext:
         self._pause_cb = None
         self._resume_cb = None
         self._quit_cb = None
+        self._add_filter_cb = None
         self._input_mode = self.PREDICATE_MODE
         self._text_input_buffer = ""
         self._prompt = ""
@@ -98,6 +99,9 @@ class InteractiveModeContext:
     def on_quit(self, callback: callable):
         self._quit_cb = callback
 
+    def on_add_filter(self, callback: callable):
+        self._add_filter_cb = callback
+
     def _reset_command_buffer(self):
         self._command_buffer = ""
         self._text_input_buffer = ""
@@ -152,7 +156,7 @@ class InteractiveModeContext:
             if len(command_params) == 0:
                 self._enter_multi_mode(command, "Set filter", ["Regular expression: ", "Background color: ", "Foreground color: "])
             else:
-                print("Set filter " + command_params[0])
+                self._add_filter_cb((command_params[0], command_params[1], command_params[2]))
                 self._reset_command_buffer()
                 self._enter_predicate_mode()
         elif command[0] == "'" and command[2] == "s":
@@ -329,6 +333,11 @@ class ConsoleOutput:
             else:
                 term.write("\u2b9e     ", flush=False)
 
+            for filter_name, filter_data in self._formatter.get_filters().items():
+                term.set_color_format(ansi_format(filter_data.background_color['stdout'], filter_data.foreground_color['stdout']))
+                term.write("\u257aA\u2578")
+
+            term.set_color_format("43;30")
             term.write(" ")
             term.write(self._interact.get_user_input_string())
             self._status_line_req_update = False
@@ -404,6 +413,14 @@ def resume_callback(console_output):
     console_output.resume()
 
 
+def add_filter_callback(formatter: Formatter, params: tuple):
+    name, background, foreground = params
+    fmt = Format()
+    fmt.background_color = {"stdout": resolve_color(background)}
+    fmt.foreground_color = {"stdout": resolve_color(foreground)}
+    formatter.add_filter_format(name, fmt)
+
+
 def quit_callback():
     raise KeyboardInterrupt
 
@@ -424,6 +441,7 @@ if __name__ == "__main__":
     interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
+    interact.on_add_filter(lambda params: add_filter_callback(formatter, params))
     interact.on_quit(lambda: quit_callback())
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
