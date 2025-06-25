@@ -205,6 +205,10 @@ class Formatter:
             register, format.background_color, format.foreground_color))
         self._filter_formats[register] = format
 
+    def delete_watch_format(self, register):
+        if register in self._filter_formats:
+            del self._filter_formats[register]
+
     def get_filters(self):
         return self._filter_formats
 

@@ -28,7 +28,7 @@ class InteractiveModeContext:
         self._pause_cb = None
         self._resume_cb = None
         self._quit_cb = None
-        self._set_filter_cb = None
+        self._set_watch_cb = None
         self._set_watch_enable_cb = None
         self._input_mode = self.PREDICATE_MODE
         self._text_input_buffer = ""
@@ -102,10 +102,10 @@ class InteractiveModeContext:
     def on_quit(self, callback: callable):
         self._quit_cb = callback
 
-    def on_set_filter(self, callback: callable):
-        self._set_filter_cb = callback
+    def on_set_watch(self, callback: callable):
+        self._set_watch_cb = callback
 
-    def on_watch_enable(self, callback: callable):
+    def on_enable_watch(self, callback: callable):
         self._set_watch_enable_cb = callback
 
     def _reset_command_buffer(self):
@@ -139,6 +139,12 @@ class InteractiveModeContext:
         self._position = 0
         self._context = kwargs
 
+    def _find_first_available_watch(self):
+        for w in self.AVAILABLE_REGISTERS:
+            if w not in self._config.watches:
+                return w
+        return None
+
     def _handle_set_watch(self, register):
         if len(self._text_input_buffer) == 0:
             if register in self._config.watches:
@@ -154,7 +160,7 @@ class InteractiveModeContext:
                 ("Foreground color: ", str(fg_color))],
                 register=register)
         else:
-            self._set_filter_cb((self._context['register'], self._text_input_buffer[0], self._text_input_buffer[1], self._text_input_buffer[2]))
+            self._set_watch_cb((self._context['register'], self._text_input_buffer[0], self._text_input_buffer[1], self._text_input_buffer[2]))
             self._reset_command_buffer()
             self._enter_predicate_mode()
 
@@ -179,7 +185,8 @@ class InteractiveModeContext:
         elif command == "q":
             self._quit_cb()
         elif command == "w":
-            self._handle_set_watch("u")
+            register = self._find_first_available_watch()
+            self._handle_set_watch(register)
         elif command[0] == "'" and command[2] == "w":
             self._handle_set_watch(command[1])
         elif command[0] == "'" and command[2] == "d":
@@ -452,8 +459,12 @@ def set_filter_callback(formatter: Formatter, config: Configuration, params: tup
     filter.format.background_color = {"default": resolve_color(background)}
     filter.format.foreground_color = {"default": resolve_color(foreground)}
 
-    formatter.add_filter_format(register, filter.format)
-    config.add_watch(register, filter)
+    if regex == "":
+        formatter.delete_watch_format(register)
+        config.delete_watch(register)
+    else:
+        formatter.add_filter_format(register, filter.format)
+        config.add_watch(register, filter)
 
 
 def set_watch_enable(config: Configuration, register: str, enabled: bool):
@@ -480,8 +491,8 @@ if __name__ == "__main__":
     interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
-    interact.on_set_filter(lambda params: set_filter_callback(formatter, config, params))
-    interact.on_watch_enable(lambda watch, enabled: set_watch_enable(config, watch, enabled))
+    interact.on_set_watch(lambda params: set_filter_callback(formatter, config, params))
+    interact.on_enable_watch(lambda watch, enabled: set_watch_enable(config, watch, enabled))
     interact.on_quit(lambda: quit_callback())
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():

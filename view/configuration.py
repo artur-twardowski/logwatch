@@ -63,8 +63,11 @@ class Configuration:
         return node["register"], watch
 
     def add_watch(self, register, watch):
-        info("Registered watch '%s': %s" % (register, watch))
         self.watches[register] = watch
+
+    def delete_watch(self, register):
+        if register in self.watches:
+            del self.watches[register]
 
     def enable_watch(self, filter_name):
         if filter_name in self.watches:
