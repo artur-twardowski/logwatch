@@ -34,6 +34,7 @@ class InteractiveModeContext:
         self._prompt = ""
         self._subprompts = []
         self._position = 0
+        self._context = {}
 
         # p   - pause
         # ap  - pause, analysis mode
@@ -65,7 +66,7 @@ class InteractiveModeContext:
             self._syntax_tree[k] = "continue"
 
         for k in self.AVAILABLE_REGISTERS:
-            self._syntax_tree["'"][k] = {"s": "eval", "d": "eval", "e": "eval", "x": "eval"}
+            self._syntax_tree["'"][k] = {"w": "eval", "d": "eval", "e": "eval", "x": "eval"}
 
         self._syntax_tree_ptr = self._syntax_tree
 
@@ -116,26 +117,39 @@ class InteractiveModeContext:
     def _enter_predicate_mode(self):
         self._input_mode = self.PREDICATE_MODE
 
-    def _enter_multi_mode(self, command, prompt, fields):
+    def _enter_multi_mode(self, command, prompt, fields, **kwargs):
         self._command_buffer = command
         self._input_mode = self.MULTI_INPUT_MODE
         self._prompt = prompt
-        self._subprompts = fields
-        self._position = 0
+        self._subprompts = [""] * len(fields)
         self._text_input_buffer = [""] * len(fields)
-
-
-    def _handle_command(self, command_params):
-        if isinstance(command_params, list):
-            command = command_params[0]
-            if len(command_params) > 1:
-                command_params = command_params[1:]
+        for field_ix, field in enumerate(fields):
+            if isinstance(field, (list, tuple)):
+                assert len(field) == 2
+                self._subprompts[field_ix] = field[0]
+                self._text_input_buffer[field_ix] = field[1]
             else:
-                command_params = []
-        else:
-            command = command_params
-            command_params = []
+                self._subprompts[field_ix] = field
+                self._text_input_buffer[field_ix] = ""
 
+        self._position = 0
+        self._context = kwargs
+
+    def _handle_set_watch(self, register):
+        if len(self._text_input_buffer) == 0:
+            self._enter_multi_mode(self._command_buffer, "Set watch '%c" % register, [
+                "Regular expression: ",
+                "Background color: ",
+                "Foreground color: "],
+                register=register)
+        else:
+            self._add_filter_cb((self._context['register'], self._text_input_buffer[0], self._text_input_buffer[1], self._text_input_buffer[2]))
+            self._reset_command_buffer()
+            self._enter_predicate_mode()
+
+    def _handle_command(self):
+        command = self._command_buffer
+        command_params = self._text_input_buffer
         counter_s = ""
         while len(command) > 0 and command[0] >= '0' and command[0] <= '9':
             counter_s += command[0]
@@ -154,23 +168,13 @@ class InteractiveModeContext:
         elif command == "q":
             self._quit_cb()
         elif command == "w":
-            if len(command_params) == 0:
-                self._enter_multi_mode(command, "Set filter", ["Regular expression: ", "Background color: ", "Foreground color: "])
-            else:
-                self._add_filter_cb(('a', command_params[0], command_params[1], command_params[2]))
-                self._reset_command_buffer()
-                self._enter_predicate_mode()
-        elif command[0] == "'" and command[2] == "s":
-            if len(command_params) == 0:
-                self._enter_multi_mode(command, "Set filter '%c" % command[2], ["Regular expression: ", "Background color: ", "Foreground color: "])
-            else:
-                self._reset_command_buffer()
-                self._enter_predicate_mode()
-
+            self._handle_set_watch("u")
+        elif command[0] == "'" and command[2] == "w":
+            self._handle_set_watch(command[1])
         else:
             print("Unhandled command: %s, %s, %s" % (counter, command, command_params))
 
-    def _predicate_input(self, key):
+    def _read_key_predicate_input(self, key):
         if key in self._syntax_tree_ptr:
             self._command_buffer += key
             if isinstance(self._syntax_tree_ptr[key], dict):
@@ -178,13 +182,13 @@ class InteractiveModeContext:
             elif self._syntax_tree_ptr[key] == "continue":
                 pass  # Stay on the same level of parser tree
             elif self._syntax_tree_ptr[key] == "eval":
-                self._handle_command(self._command_buffer)
+                self._handle_command()
                 if self._input_mode == self.PREDICATE_MODE:
                     self._reset_command_buffer()
         else:
             self._reset_command_buffer()
 
-    def _text_input(self, key):
+    def _read_key_text_input(self, key):
         if key == "<BS>":
             if len(self._text_input_buffer) > 0:
                 self._text_input_buffer = self._text_input_buffer[:-1]
@@ -192,11 +196,11 @@ class InteractiveModeContext:
             self._input_mode = self.PREDICATE_MODE
             self._reset_command_buffer()
         elif key == "<Enter>":
-            self._handle_command([self._command_buffer, self._text_input_buffer])
+            self._handle_command()
         else:
             self._text_input_buffer += key
 
-    def _multi_input(self, key):
+    def _read_key_multi_input(self, key):
         if key == "<BS>":
             if len(self._text_input_buffer[self._position]) > 0:
                 self._text_input_buffer[self._position] = self._text_input_buffer[self._position][:-1]
@@ -204,7 +208,7 @@ class InteractiveModeContext:
             self._input_mode = self.PREDICATE_MODE
             self._reset_command_buffer()
         elif key == "<Enter>":
-            self._handle_command([self._command_buffer] + self._text_input_buffer)
+            self._handle_command()
         elif key in ["<Up>"]:
             if self._position > 0:
                 self._position -= 1
@@ -214,15 +218,15 @@ class InteractiveModeContext:
         else:
             self._text_input_buffer[self._position] += key
 
-    def read_key(self, term:TerminalRawMode):
+    def read_key(self, term: TerminalRawMode):
         key = term.read_key()
         if key != "":
             if self._input_mode == self.PREDICATE_MODE:
-                self._predicate_input(key)
+                self._read_key_predicate_input(key)
             elif self._input_mode == self.TEXT_INPUT_MODE:
-                self._text_input(key)
+                self._read_key_text_input(key)
             elif self._input_mode == self.MULTI_INPUT_MODE:
-                self._multi_input(key)
+                self._read_key_multi_input(key)
 
             self._command_buffer_changed_cb(self._command_buffer)
 
