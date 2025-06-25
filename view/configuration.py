@@ -3,9 +3,8 @@ from view.formatter import Format, resolve_color
 import re
 import yaml
 
-class Filter:
+class Watch:
     def __init__(self):
-        self.name = None
         self.regex = None
         self.format = Format()
         self.enabled = True
@@ -51,21 +50,21 @@ class Configuration:
         return fmt
 
     def _parse_watch_node(self, node):
-        filter = Filter()
+        watch = Watch()
         lw_assert("regex" in node, "Missing \"regex\" field in definition of watch")
         lw_assert("register" in node, "Missing \"register\" field in definition of watch")
         lw_assert(len(node["register"]) == 1, "Watch register name must be a single character")
 
-        filter.set_regex(node['regex'])
-        filter.name = node.get('name', filter.regex)
-        filter.enabled = node.get('enabled', True)
-        filter.format.background_color['default'] = resolve_color(node.get('background-color', 'none'))
-        filter.format.foreground_color['default'] = resolve_color(node.get('foreground-color', 'white'))
-        return node["register"], filter
+        watch.set_regex(node['regex'])
+        watch.name = node.get('name', watch.regex)
+        watch.enabled = node.get('enabled', True)
+        watch.format.background_color['default'] = resolve_color(node.get('background-color', 'none'))
+        watch.format.foreground_color['default'] = resolve_color(node.get('foreground-color', 'white'))
+        return node["register"], watch
 
-    def register_watch(self, filter_node):
-        info("Registered filter %s: %s" % (filter_node.name, filter_node.regex))
-        self.watches[filter_node.name] = filter_node
+    def add_watch(self, register, watch):
+        info("Registered watch '%s': %s" % (register, watch))
+        self.watches[register] = watch
 
     def enable_watch(self, filter_name):
         if filter_name in self.watches:
@@ -106,6 +105,6 @@ class Configuration:
                     self.endpoint_formats[format['endpoint']] = self._parse_format_node(format)
                 if 'regex' in format:
                     watch_register, watch_node = self._parse_watch_node(format)
-                    self.watches[watch_register] = watch_node
+                    self.add_watch(watch_register, watch_node)
 
 

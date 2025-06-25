@@ -31,8 +31,14 @@ views:
         marker:
           background-color: green1
           foreground-color: green7
+      - register: 'x'
+        regex: ".py"
+        background-color: blue1
+        foreground-color: blue8
+        enabled: true
 
-    line-format: "{format:endpoint}[{endpoint:8}] {format:default} {seq:_6} {time}\u2503 {data}"
+
+    line-format: "{format:filter}{watch-symbol}{format:endpoint}[{endpoint:8}] {seq:_6} {time}\u2503 {data}"
     marker-format: "{format:endpoint}[ MARKER ] >>>>>> {time}\u2503 {name} <<<<<<"
     filtered: false
     max-held-lines: 5000

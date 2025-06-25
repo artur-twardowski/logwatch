@@ -10,7 +10,7 @@ from utils import pop_args, info, error, warning, set_log_level, VERSION
 from utils import TerminalRawMode
 from view.formatter import Formatter, resolve_color, ansi_format1, Format
 from view.formatter import render_watch_register
-from view.configuration import Configuration, Filter
+from view.configuration import Configuration, Watch
 import yaml
 import re
 
@@ -157,7 +157,7 @@ class InteractiveModeContext:
             if len(command_params) == 0:
                 self._enter_multi_mode(command, "Set filter", ["Regular expression: ", "Background color: ", "Foreground color: "])
             else:
-                self._add_filter_cb((command_params[0], command_params[1], command_params[2]))
+                self._add_filter_cb(('a', command_params[0], command_params[1], command_params[2]))
                 self._reset_command_buffer()
                 self._enter_predicate_mode()
         elif command[0] == "'" and command[2] == "s":
@@ -250,18 +250,24 @@ class ConsoleOutput:
         self._drop_newest_lines = value
 
     def _print_line(self, data):
-        if not self._config.filtered_mode:
+        matched_register = None
+        for register, watch in self._config.watches.items():
+            if watch.enabled and watch.match(data['data']):
+                matched_register = register
+                break
+
+        if matched_register is not None:
+            data['watch'] = matched_register
+            data['watch-symbol'] = render_watch_register(matched_register)
+        else:
+            data['watch'] = ""
+            data['watch-symbol'] = "   "
+
+        if not self._config.filtered_mode or matched_register is not None:
             self._terminal.reset_current_line()
             self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
             self._status_line_req_update = True
-        else:
-            for register, watch in self._config.watches.items():
-                if watch.enabled and watch.match(data['data']):
-                    data['watch'] = register
-                    data['watch-symbol'] = render_watch_register(register)
-                    self._terminal.reset_current_line()
-                    self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
-                    self._status_line_req_update = True
+
 
     def _print_marker(self, data):
         self._terminal.write_line(self._formatter.format_line(self._config.marker_format, data))
@@ -415,12 +421,16 @@ def resume_callback(console_output):
     console_output.resume()
 
 
-def add_filter_callback(formatter: Formatter, params: tuple):
-    name, background, foreground = params
-    fmt = Format()
-    fmt.background_color = {"stdout": resolve_color(background)}
-    fmt.foreground_color = {"stdout": resolve_color(foreground)}
-    formatter.add_filter_format(name, fmt)
+def add_filter_callback(formatter: Formatter, config: Configuration, params: tuple):
+    register, regex, background, foreground = params
+    filter = Watch()
+    filter.set_regex(regex)
+    filter.enabled = True
+    filter.format.background_color = {"default": resolve_color(background)}
+    filter.format.foreground_color = {"default": resolve_color(foreground)}
+
+    formatter.add_filter_format(register, filter.format)
+    config.add_watch(register, filter)
 
 
 def quit_callback():
@@ -443,7 +453,7 @@ if __name__ == "__main__":
     interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
-    interact.on_add_filter(lambda params: add_filter_callback(formatter, params))
+    interact.on_add_filter(lambda params: add_filter_callback(formatter, config, params))
     interact.on_quit(lambda: quit_callback())
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
