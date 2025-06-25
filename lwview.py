@@ -28,7 +28,7 @@ class InteractiveModeContext:
         self._pause_cb = None
         self._resume_cb = None
         self._quit_cb = None
-        self._add_filter_cb = None
+        self._set_filter_cb = None
         self._input_mode = self.PREDICATE_MODE
         self._text_input_buffer = ""
         self._prompt = ""
@@ -101,8 +101,8 @@ class InteractiveModeContext:
     def on_quit(self, callback: callable):
         self._quit_cb = callback
 
-    def on_add_filter(self, callback: callable):
-        self._add_filter_cb = callback
+    def on_set_filter(self, callback: callable):
+        self._set_filter_cb = callback
 
     def _reset_command_buffer(self):
         self._command_buffer = ""
@@ -137,13 +137,20 @@ class InteractiveModeContext:
 
     def _handle_set_watch(self, register):
         if len(self._text_input_buffer) == 0:
+            if register in self._config.watches:
+                watch = self._config.watches[register]
+                regex = watch.regex
+                bg_color, fg_color = watch.format.get()
+            else:
+                regex = ""
+                bg_color, fg_color = Format().get()
             self._enter_multi_mode(self._command_buffer, "Set watch '%c" % register, [
-                "Regular expression: ",
-                "Background color: ",
-                "Foreground color: "],
+                ("Regular expression: ", regex),
+                ("Background color: ", str(bg_color)),
+                ("Foreground color: ", str(fg_color))],
                 register=register)
         else:
-            self._add_filter_cb((self._context['register'], self._text_input_buffer[0], self._text_input_buffer[1], self._text_input_buffer[2]))
+            self._set_filter_cb((self._context['register'], self._text_input_buffer[0], self._text_input_buffer[1], self._text_input_buffer[2]))
             self._reset_command_buffer()
             self._enter_predicate_mode()
 
@@ -425,7 +432,7 @@ def resume_callback(console_output):
     console_output.resume()
 
 
-def add_filter_callback(formatter: Formatter, config: Configuration, params: tuple):
+def set_filter_callback(formatter: Formatter, config: Configuration, params: tuple):
     register, regex, background, foreground = params
     filter = Watch()
     filter.set_regex(regex)
@@ -457,7 +464,7 @@ if __name__ == "__main__":
     interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
-    interact.on_add_filter(lambda params: add_filter_callback(formatter, config, params))
+    interact.on_set_filter(lambda params: set_filter_callback(formatter, config, params))
     interact.on_quit(lambda: quit_callback())
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
