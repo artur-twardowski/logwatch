@@ -9,6 +9,7 @@ from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
 from utils import TerminalRawMode
 from view.formatter import Formatter, resolve_color, ansi_format1, Format
+from view.formatter import render_watch_register
 from view.configuration import Configuration, Filter
 import yaml
 import re
@@ -254,9 +255,10 @@ class ConsoleOutput:
             self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
             self._status_line_req_update = True
         else:
-            for name, filter in self._config.watches.items():
-                if filter.enabled and filter.match(data['data']):
-                    data['filter'] = name
+            for register, watch in self._config.watches.items():
+                if watch.enabled and watch.match(data['data']):
+                    data['watch'] = register
+                    data['watch-symbol'] = render_watch_register(register)
                     self._terminal.reset_current_line()
                     self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
                     self._status_line_req_update = True
@@ -333,9 +335,9 @@ class ConsoleOutput:
             else:
                 term.write("\u2b9e     ", flush=False)
 
-            for filter_name, filter_data in self._formatter.get_filters().items():
+            for register, filter_data in self._formatter.get_filters().items():
                 term.set_color_format(ansi_format1(filter_data.get()))
-                term.write("\u257aA\u2578")
+                term.write(render_watch_register(register))
 
             term.set_color_format("43;30")
             term.write(" ")

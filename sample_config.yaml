@@ -38,10 +38,11 @@ views:
     max-held-lines: 5000
 
   filtered:
-    line-format: "{format:filter}[{filter}] {fd} {seq:6} {time}{format:reset} {data}"
+    line-format: "{format:filter}{watch-symbol} {fd} {seq:6} {time}{format:reset} {data}"
     filtered: true
     formats:
-      - regex: '.py'
+      - register: 'p'
+        regex: '.py'
         background-color: blue7
         foreground-color: black
         enabled: true

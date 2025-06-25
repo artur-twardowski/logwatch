@@ -1,4 +1,4 @@
-from utils import info, error
+from utils import info, error, lw_assert
 from view.formatter import Format, resolve_color
 import re
 import yaml
@@ -52,16 +52,16 @@ class Configuration:
 
     def _parse_watch_node(self, node):
         filter = Filter()
-        if 'regex' not in node:
-            error("Missing \"regex\" field in filter definition")
-            exit(1)
+        lw_assert("regex" in node, "Missing \"regex\" field in definition of watch")
+        lw_assert("register" in node, "Missing \"register\" field in definition of watch")
+        lw_assert(len(node["register"]) == 1, "Watch register name must be a single character")
 
         filter.set_regex(node['regex'])
         filter.name = node.get('name', filter.regex)
         filter.enabled = node.get('enabled', True)
         filter.format.background_color['default'] = resolve_color(node.get('background-color', 'none'))
         filter.format.foreground_color['default'] = resolve_color(node.get('foreground-color', 'white'))
-        return filter
+        return node["register"], filter
 
     def register_watch(self, filter_node):
         info("Registered filter %s: %s" % (filter_node.name, filter_node.regex))
@@ -105,7 +105,7 @@ class Configuration:
                 if 'endpoint' in format:
                     self.endpoint_formats[format['endpoint']] = self._parse_format_node(format)
                 if 'regex' in format:
-                    watch_node = self._parse_watch_node(format)
-                    self.watches[watch_node.name] = watch_node
+                    watch_register, watch_node = self._parse_watch_node(format)
+                    self.watches[watch_register] = watch_node
 
 

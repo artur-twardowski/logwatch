@@ -178,6 +178,10 @@ def superscript(s):
     return result
 
 
+def render_watch_register(r):
+    return "\u257a%c\u2578" % r
+
+
 class Formatter:
     FORMATTING_TAG_DELIM = "\x10"
     FORMATTING_RESET = "R"
@@ -196,10 +200,10 @@ class Formatter:
             name, format.background_color, format.foreground_color))
         self._endpoint_formats[name] = format
 
-    def add_filter_format(self, name, format: Format):
+    def add_filter_format(self, register, format: Format):
         debug("Adding formatting for filter %s: background=%s, foreground=%s" % (
-            name, format.background_color, format.foreground_color))
-        self._filter_formats[name] = format
+            register, format.background_color, format.foreground_color))
+        self._filter_formats[register] = format
 
     def get_filters(self):
         return self._filter_formats
@@ -259,11 +263,11 @@ class Formatter:
         #     as configured
         reset_fmt = Format.DEFAULT_BG_COLOR, Format.DEFAULT_FG_COLOR
 
-        if 'filter' in fields and fields['filter'] in self._filter_formats:
-            filter_fmt = self._filter_formats[fields['filter']].get(fields['fd'])
-            default_fmt = filter_fmt
+        if 'watch' in fields and fields['watch'] in self._filter_formats:
+            watch_fmt = self._filter_formats[fields['watch']].get(fields['fd'])
+            default_fmt = watch_fmt
         else:
-            filter_fmt = reset_fmt
+            watch_fmt = reset_fmt
             default_fmt = None
 
         if fields['endpoint'] in self._endpoint_formats:
@@ -287,7 +291,9 @@ class Formatter:
                 elif data_to_format[ch_ix + 1] == self.FORMATTING_ENDPOINT:
                     use_format = endpoint_fmt
                 elif data_to_format[ch_ix + 1] == self.FORMATTING_FILTER:
-                    use_format = filter_fmt
+                    use_format = watch_fmt
+                elif data_to_format[ch_ix + 1] == self.FORMATTING_DEFAULT:
+                    use_format = default_fmt
                 ch_ix += 2
                 continue
 
