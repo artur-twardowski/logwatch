@@ -29,6 +29,7 @@ class InteractiveModeContext:
         self._resume_cb = None
         self._quit_cb = None
         self._set_filter_cb = None
+        self._set_watch_enable_cb = None
         self._input_mode = self.PREDICATE_MODE
         self._text_input_buffer = ""
         self._prompt = ""
@@ -104,6 +105,9 @@ class InteractiveModeContext:
     def on_set_filter(self, callback: callable):
         self._set_filter_cb = callback
 
+    def on_watch_enable(self, callback: callable):
+        self._set_watch_enable_cb = callback
+
     def _reset_command_buffer(self):
         self._command_buffer = ""
         self._text_input_buffer = ""
@@ -178,6 +182,10 @@ class InteractiveModeContext:
             self._handle_set_watch("u")
         elif command[0] == "'" and command[2] == "w":
             self._handle_set_watch(command[1])
+        elif command[0] == "'" and command[2] == "d":
+            self._set_watch_enable_cb(command[1], False)
+        elif command[0] == "'" and command[2] == "e":
+            self._set_watch_enable_cb(command[1], True)
         else:
             print("Unhandled command: %s, %s, %s" % (counter, command, command_params))
 
@@ -353,7 +361,11 @@ class ConsoleOutput:
                 term.write("\u2b9e     ", flush=False)
 
             for register, filter_data in self._formatter.get_filters().items():
-                term.set_color_format(ansi_format1(filter_data.get()))
+                if self._config.watches[register].enabled:
+                    term.set_color_format(ansi_format1(filter_data.get()))
+                else:
+                    term.set_color_format("43;30")
+
                 term.write(render_watch_register(register))
 
             term.set_color_format("43;30")
@@ -444,6 +456,10 @@ def set_filter_callback(formatter: Formatter, config: Configuration, params: tup
     config.add_watch(register, filter)
 
 
+def set_watch_enable(config: Configuration, register: str, enabled: bool):
+    config.watches[register].enabled = enabled
+
+
 def quit_callback():
     raise KeyboardInterrupt
 
@@ -465,6 +481,7 @@ if __name__ == "__main__":
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
     interact.on_set_filter(lambda params: set_filter_callback(formatter, config, params))
+    interact.on_watch_enable(lambda watch, enabled: set_watch_enable(config, watch, enabled))
     interact.on_quit(lambda: quit_callback())
 
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
