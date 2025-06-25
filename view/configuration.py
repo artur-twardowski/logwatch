@@ -32,7 +32,7 @@ class Configuration:
         self.line_format = None
         self.marker_format = None
         self.endpoint_formats = {}
-        self.filters = {}
+        self.watches = {}
         self.marker_format = None
         self.filtered_mode = False
         self.max_held_lines = None
@@ -50,7 +50,7 @@ class Configuration:
             fmt.foreground_color[fd] = resolve_color(formats.get('foreground-color', "white"))
         return fmt
 
-    def _parse_filter_node(self, node):
+    def _parse_watch_node(self, node):
         filter = Filter()
         if 'regex' not in node:
             error("Missing \"regex\" field in filter definition")
@@ -59,21 +59,21 @@ class Configuration:
         filter.set_regex(node['regex'])
         filter.name = node.get('name', filter.regex)
         filter.enabled = node.get('enabled', True)
-        filter.format.background_color['stdout'] = resolve_color(node.get('background-color', 'none'))
-        filter.format.foreground_color['stdout'] = resolve_color(node.get('foreground-color', 'white'))
+        filter.format.background_color['default'] = resolve_color(node.get('background-color', 'none'))
+        filter.format.foreground_color['default'] = resolve_color(node.get('foreground-color', 'white'))
         return filter
 
-    def register_filter(self, filter_node):
+    def register_watch(self, filter_node):
         info("Registered filter %s: %s" % (filter_node.name, filter_node.regex))
-        self.filters[filter_node.name] = filter_node
+        self.watches[filter_node.name] = filter_node
 
-    def enable_filter(self, filter_name):
-        if filter_name in self.filters:
-            self.filters[filter_name].enabled = True
+    def enable_watch(self, filter_name):
+        if filter_name in self.watches:
+            self.watches[filter_name].enabled = True
 
-    def disable_filter(self, filter_name):
-        if filter_name in self.filters:
-            self.filters[filter_name].enabled = False
+    def disable_watch(self, filter_name):
+        if filter_name in self.watches:
+            self.watches[filter_name].enabled = False
 
     def read(self, filename, view_name="main"):
         with open(filename, 'r') as file:
@@ -105,7 +105,7 @@ class Configuration:
                 if 'endpoint' in format:
                     self.endpoint_formats[format['endpoint']] = self._parse_format_node(format)
                 if 'regex' in format:
-                    filter_node = self._parse_filter_node(format)
-                    self.filters[filter_node.name] = filter_node
+                    watch_node = self._parse_watch_node(format)
+                    self.watches[watch_node.name] = watch_node
 
 

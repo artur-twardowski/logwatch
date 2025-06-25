@@ -21,7 +21,7 @@ views:
     show-endpoints: all
     formats:
       - endpoint: "command"
-        stdout:
+        default:
           background-color: none
           foreground-color: white
         stderr:
@@ -32,7 +32,7 @@ views:
           background-color: green1
           foreground-color: green7
 
-    line-format: "{format:endpoint}[{endpoint:8}] {seq:_6} {time}\u2503 {data}"
+    line-format: "{format:endpoint}[{endpoint:8}] {format:default} {seq:_6} {time}\u2503 {data}"
     marker-format: "{format:endpoint}[ MARKER ] >>>>>> {time}\u2503 {name} <<<<<<"
     filtered: false
     max-held-lines: 5000

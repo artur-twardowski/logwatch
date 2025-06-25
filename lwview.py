@@ -8,7 +8,7 @@ from collections import deque
 from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
 from utils import TerminalRawMode
-from view.formatter import Formatter, resolve_color, ansi_format, Format
+from view.formatter import Formatter, resolve_color, ansi_format1, Format
 from view.configuration import Configuration, Filter
 import yaml
 import re
@@ -254,7 +254,7 @@ class ConsoleOutput:
             self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
             self._status_line_req_update = True
         else:
-            for name, filter in self._config.filters.items():
+            for name, filter in self._config.watches.items():
                 if filter.enabled and filter.match(data['data']):
                     data['filter'] = name
                     self._terminal.reset_current_line()
@@ -334,7 +334,7 @@ class ConsoleOutput:
                 term.write("\u2b9e     ", flush=False)
 
             for filter_name, filter_data in self._formatter.get_filters().items():
-                term.set_color_format(ansi_format(filter_data.background_color['stdout'], filter_data.foreground_color['stdout']))
+                term.set_color_format(ansi_format1(filter_data.get()))
                 term.write("\u257aA\u2578")
 
             term.set_color_format("43;30")
@@ -447,7 +447,7 @@ if __name__ == "__main__":
     for endpoint_name, endpoint_format in config.endpoint_formats.items():
         formatter.add_endpoint_format(endpoint_name, endpoint_format)
 
-    for filter_name, filter in config.filters.items():
+    for filter_name, filter in config.watches.items():
         formatter.add_filter_format(filter_name, filter.format)
 
     try:
