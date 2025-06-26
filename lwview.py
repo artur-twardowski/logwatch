@@ -210,34 +210,50 @@ class InteractiveModeContext:
         else:
             self._reset_command_buffer()
 
-    def _read_key_text_input(self, key):
-        if key == "<BS>":
+    def _on_backspace(self):
+        if isinstance(self._text_input_buffer, list):
+            if len(self._text_input_buffer[self._position]) > 0:
+                self._text_input_buffer[self._position] = self._text_input_buffer[self._position][:-1]
+        else:
             if len(self._text_input_buffer) > 0:
                 self._text_input_buffer = self._text_input_buffer[:-1]
+
+    def _on_input(self, content):
+        if isinstance(self._text_input_buffer, list):
+                self._text_input_buffer[self._position] += content
+        else:
+            self._text_input_buffer += content
+
+    def _read_key_common(self, key):
+        if key == "<BS>":
+            self._on_backspace()
+        elif key == "<Space>":
+            self._on_input(" ")
+        elif key == "<LT>":
+            self._on_input("<")
+        elif key == "<GT>":
+            self._on_input(">")
         elif key == "<ESC>":
             self._input_mode = self.PREDICATE_MODE
             self._reset_command_buffer()
         elif key == "<Enter>":
             self._handle_command()
         else:
+            return False
+        return True
+
+    def _read_key_text_input(self, key):
+        if not self._read_key_common(key):
             self._text_input_buffer += key
 
     def _read_key_multi_input(self, key):
-        if key == "<BS>":
-            if len(self._text_input_buffer[self._position]) > 0:
-                self._text_input_buffer[self._position] = self._text_input_buffer[self._position][:-1]
-        elif key == "<ESC>":
-            self._input_mode = self.PREDICATE_MODE
-            self._reset_command_buffer()
-        elif key == "<Enter>":
-            self._handle_command()
-        elif key in ["<Up>"]:
+        if key in ["<Up>"]:
             if self._position > 0:
                 self._position -= 1
         elif key in ["<Down>"]:
             if self._position < len(self._subprompts) - 1:
                 self._position += 1
-        else:
+        elif not self._read_key_common(key):
             self._text_input_buffer[self._position] += key
 
     def read_key(self, term: TerminalRawMode):
