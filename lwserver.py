@@ -80,7 +80,7 @@ def any_active(subprocesses: list):
 
 if __name__ == "__main__":
     set_log_level(3)
-    info("*** LOGWATCH v%s: logserver" % VERSION)
+    info("*** LOGWATCH v%s: lwserver" % VERSION)
     config = read_args(argv[1:])
     server_manager = ServiceManager()
     server_manager.set_late_join_buf_size(config.late_join_buf_size)

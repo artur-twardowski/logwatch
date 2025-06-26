@@ -510,7 +510,7 @@ def quit_callback():
 
 if __name__ == "__main__":
     set_log_level(3)
-    info("*** LOGVIEW v%s" % VERSION)
+    info("*** LOGWATCH v%s: lwview" % VERSION)
     config = read_args(argv[1:])
     set_log_level(config.log_level)
 
