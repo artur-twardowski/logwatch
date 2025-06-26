@@ -34,7 +34,7 @@ class InteractiveModeContext:
         self._text_input_buffer = ""
         self._prompt = ""
         self._subprompts = []
-        self._position = 0
+        self._buf_index = 0
         self._context = {}
 
         # p   - pause
@@ -80,14 +80,14 @@ class InteractiveModeContext:
             count = len(self._subprompts)
             arrow = " "
             if count > 2:
-                if self._position == 0:
+                if self._buf_index == 0:
                     arrow = "\u2193" # Down arrow
-                elif self._position == count - 1:
+                elif self._buf_index == count - 1:
                     arrow = "\u2191" # Up arrow
                 else:
                     arrow = "\u2195" # Up/down arrow
 
-            return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._position], self._text_input_buffer[self._position])
+            return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._buf_index], self._text_input_buffer[self._buf_index])
 
 
     def on_command_buffer_changed(self, callback: callable):
@@ -136,7 +136,7 @@ class InteractiveModeContext:
                 self._subprompts[field_ix] = field
                 self._text_input_buffer[field_ix] = ""
 
-        self._position = 0
+        self._buf_index = 0
         self._context = kwargs
 
     def _find_first_available_watch(self):
@@ -189,6 +189,8 @@ class InteractiveModeContext:
             self._handle_set_watch(register)
         elif command[0] == "'" and command[2] == "w":
             self._handle_set_watch(command[1])
+        elif command[0] == "'" and command[2] == "x":
+            self._set_watch_cb((command[1], '', -1, -1))
         elif command[0] == "'" and command[2] == "d":
             self._set_watch_enable_cb(command[1], False)
         elif command[0] == "'" and command[2] == "e":
@@ -212,15 +214,15 @@ class InteractiveModeContext:
 
     def _on_backspace(self):
         if isinstance(self._text_input_buffer, list):
-            if len(self._text_input_buffer[self._position]) > 0:
-                self._text_input_buffer[self._position] = self._text_input_buffer[self._position][:-1]
+            if len(self._text_input_buffer[self._buf_index]) > 0:
+                self._text_input_buffer[self._buf_index] = self._text_input_buffer[self._buf_index][:-1]
         else:
             if len(self._text_input_buffer) > 0:
                 self._text_input_buffer = self._text_input_buffer[:-1]
 
     def _on_input(self, content):
         if isinstance(self._text_input_buffer, list):
-                self._text_input_buffer[self._position] += content
+                self._text_input_buffer[self._buf_index] += content
         else:
             self._text_input_buffer += content
 
@@ -248,13 +250,13 @@ class InteractiveModeContext:
 
     def _read_key_multi_input(self, key):
         if key in ["<Up>"]:
-            if self._position > 0:
-                self._position -= 1
+            if self._buf_index > 0:
+                self._buf_index -= 1
         elif key in ["<Down>"]:
-            if self._position < len(self._subprompts) - 1:
-                self._position += 1
+            if self._buf_index < len(self._subprompts) - 1:
+                self._buf_index += 1
         elif not self._read_key_common(key):
-            self._text_input_buffer[self._position] += key
+            self._text_input_buffer[self._buf_index] += key
 
     def read_key(self, term: TerminalRawMode):
         key = term.read_key()
@@ -484,7 +486,8 @@ def set_filter_callback(formatter: Formatter, config: Configuration, params: tup
 
 
 def set_watch_enable(config: Configuration, register: str, enabled: bool):
-    config.watches[register].enabled = enabled
+    if register in config.watches:
+        config.watches[register].enabled = enabled
 
 
 def quit_callback():
