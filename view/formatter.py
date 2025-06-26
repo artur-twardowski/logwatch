@@ -92,6 +92,21 @@ COLOR_MAP = {
     "none": -1
 }
 
+def get_default_register_format(register):
+    DEFAULT_FORMATS = {
+        '0': (COLOR_MAP['blue3'], COLOR_MAP['blue9']),
+        '1': (COLOR_MAP['green1'], COLOR_MAP['green6']),
+        '2': (COLOR_MAP['cyan1'], COLOR_MAP['cyan6']),
+        '3': (COLOR_MAP['red1'], COLOR_MAP['red6']),
+        '4': (COLOR_MAP['magenta1'], COLOR_MAP['magenta6']),
+        '5': (COLOR_MAP['yellow1'], COLOR_MAP['yellow6']),
+        '6': (COLOR_MAP['grey4'], COLOR_MAP['grey23']),
+    }
+
+    if register in DEFAULT_FORMATS:
+        return DEFAULT_FORMATS[register]
+    else:
+        return DEFAULT_FORMATS['1']
 
 def pad_left(string, char, size):
     while len(string) < size:

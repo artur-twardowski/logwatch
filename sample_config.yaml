@@ -38,7 +38,7 @@ views:
         enabled: true
 
 
-    line-format: "{format:filter}{watch-symbol}{format:endpoint}[{endpoint:8}] {seq:_6} {time}\u2503 {data}"
+    line-format: "{format:filter}{watch-symbol}[{endpoint:8}] {seq:_6} {time}\u2503 {format:default}{data}"
     marker-format: "{format:endpoint}[ MARKER ] >>>>>> {time}\u2503 {name} <<<<<<"
     filtered: false
     max-held-lines: 5000

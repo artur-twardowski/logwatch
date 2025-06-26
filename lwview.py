@@ -9,7 +9,7 @@ from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
 from utils import TerminalRawMode
 from view.formatter import Formatter, resolve_color, ansi_format1, Format
-from view.formatter import render_watch_register
+from view.formatter import render_watch_register, get_default_register_format
 from view.configuration import Configuration, Watch
 import yaml
 import re
@@ -71,6 +71,12 @@ class InteractiveModeContext:
 
         self._syntax_tree_ptr = self._syntax_tree
 
+    def get_modified_watch(self):
+        if "set_watch" in self._context and "register" in self._context:
+            return self._context["register"]
+        else:
+            return None
+
     def get_user_input_string(self):
         if self._input_mode == self.PREDICATE_MODE:
             return "\u21c9 " + self._command_buffer
@@ -113,13 +119,15 @@ class InteractiveModeContext:
         self._text_input_buffer = ""
         self._syntax_tree_ptr = self._syntax_tree
 
-    def _enter_text_input(self, command, prompt):
+    def _enter_text_input(self, command, prompt, **kwargs):
         self._command_buffer = command
         self._input_mode = self.TEXT_INPUT_MODE
         self._prompt = "Regular expression: "
+        self._context = kwargs
 
-    def _enter_predicate_mode(self):
+    def _enter_predicate_mode(self, **kwargs):
         self._input_mode = self.PREDICATE_MODE
+        self._context = kwargs
 
     def _enter_multi_mode(self, command, prompt, fields, **kwargs):
         self._command_buffer = command
@@ -153,12 +161,13 @@ class InteractiveModeContext:
                 bg_color, fg_color = watch.format.get()
             else:
                 regex = ""
-                bg_color, fg_color = Format().get()
+                bg_color, fg_color = get_default_register_format(register)
             self._enter_multi_mode(self._command_buffer, "Set watch '%c" % register, [
                 ("Regular expression: ", regex),
                 ("Background color: ", str(bg_color)),
                 ("Foreground color: ", str(fg_color))],
-                register=register)
+                register=register,
+                set_watch=True)
         else:
             self._set_watch_cb((self._context['register'], self._text_input_buffer[0], self._text_input_buffer[1], self._text_input_buffer[2]))
             self._reset_command_buffer()
@@ -312,7 +321,6 @@ class ConsoleOutput:
             self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
             self._status_line_req_update = True
 
-
     def _print_marker(self, data):
         self._terminal.write_line(self._formatter.format_line(self._config.marker_format, data))
         self._status_line_req_update = True
@@ -385,13 +393,20 @@ class ConsoleOutput:
             else:
                 term.write("\u2b9e     ", flush=False)
 
+            changed_register = self._interact.get_modified_watch()
+
             for register, filter_data in self._formatter.get_filters().items():
+                if register == changed_register:
+                    term.set_color_format("5")
+
                 if self._config.watches[register].enabled:
                     term.set_color_format(ansi_format1(filter_data.get()))
                 else:
                     term.set_color_format("43;30")
 
                 term.write(render_watch_register(register))
+                if register == changed_register:
+                    term.set_color_format("25")
 
             term.set_color_format("43;30")
             term.write(" ")
