@@ -37,29 +37,14 @@ class InteractiveModeContext:
         self._buf_index = 0
         self._context = {}
 
-        # p   - pause
-        # ap  - pause, analysis mode
-        # r   - resume
-        # q   - quit
-        # w   - set new filter in first available register
-        # 'Rs - set filter in register R
-        # 'Rx - clear filter register R
-        # 'Rd - disable filter from register R
-        # 'Re - enable filter from register R
-        # "Rs - set command in register R
-        # "Rx - clear command register R
-        # "Re - execute command from register R
-        # !R  - same as "Re
-        # <M-0>..<M-9> - same as "0e .. "9e
-
         self._syntax_tree = {
-            "p": "eval",
-            "a": {"p": "eval"},
-            "r": "eval",
-            "q": "eval",
-            "w": "eval",
-            "'": {},
-            "\"": {}
+            "p": "eval",         # p  - pause
+            "a": {"p": "eval"},  # ap - analysis pause
+            "r": "eval",         # r - resume
+            "q": "eval",         # q - quit
+            "w": "eval",         # w - set watch in first free register
+            "'": {},             # '... - operation on watch register
+            "\"": {}             # "... - operation on command register
         }
 
 
@@ -67,7 +52,12 @@ class InteractiveModeContext:
             self._syntax_tree[k] = "continue"
 
         for k in self.AVAILABLE_REGISTERS:
-            self._syntax_tree["'"][k] = {"w": "eval", "d": "eval", "e": "eval", "x": "eval"}
+            self._syntax_tree["'"][k] = {
+                    "w": "eval",   # 'Rw Set a watch in register R
+                    "d": "eval",   # 'Rd Disable the watch
+                    "e": "eval",   # 'Re Enable the watch
+                    "x": "eval"    # 'Rx Delete the watch
+            }
 
         self._syntax_tree_ptr = self._syntax_tree
 
