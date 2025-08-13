@@ -148,18 +148,26 @@ class InteractiveModeContext:
             if register in self._config.watches:
                 watch = self._config.watches[register]
                 regex = watch.regex
+                replacement = watch.replacement
                 bg_color, fg_color = watch.format.get()
             else:
                 regex = ""
+                replacement = None
                 bg_color, fg_color = get_default_register_format(register)
+
+            # TODO: should not be required
+            if replacement is None:
+                replacement = ""
+
             self._enter_multi_mode(self._command_buffer, "Set watch '%c" % register, [
                 ("Regular expression: ", regex),
+                ("Replacement: ", replacement),
                 ("Background color: ", str(bg_color)),
                 ("Foreground color: ", str(fg_color))],
                 register=register,
                 set_watch=True)
         else:
-            self._set_watch_cb((self._context['register'], self._text_input_buffer[0], self._text_input_buffer[1], self._text_input_buffer[2]))
+            self._set_watch_cb(self._context['register'], self._text_input_buffer)
             self._reset_command_buffer()
             self._enter_predicate_mode()
 
@@ -302,9 +310,18 @@ class ConsoleOutput:
         if matched_register is not None:
             data['watch'] = matched_register
             data['watch-symbol'] = render_watch_register(matched_register)
+            data['matches'] = watch.matches
+
+            # TODO: other condition should not be required
+            if watch.replacement is not None and watch.replacement != "":
+                repl = watch.replacement
+                for ix, match in enumerate(data['matches']):
+                    repl = repl.replace('\\%d' % (ix + 1), match)
+                data['data'] = repl
         else:
             data['watch'] = ""
             data['watch-symbol'] = "   "
+            data['matches'] = []
 
         if not self._config.filtered_mode or matched_register is not None:
             self._terminal.reset_current_line()
@@ -474,20 +491,21 @@ def resume_callback(console_output):
     console_output.resume()
 
 
-def set_filter_callback(formatter: Formatter, config: Configuration, params: tuple):
-    register, regex, background, foreground = params
-    filter = Watch()
-    filter.set_regex(regex)
-    filter.enabled = True
-    filter.format.background_color = {"default": resolve_color(background)}
-    filter.format.foreground_color = {"default": resolve_color(foreground)}
+def set_watch_callback(formatter: Formatter, config: Configuration, register: str, params: tuple):
+    regex, replacement, background, foreground = params
+    watch = Watch()
+    watch.set_regex(regex)
+    watch.replacement = replacement
+    watch.enabled = True
+    watch.format.background_color = {"default": resolve_color(background)}
+    watch.format.foreground_color = {"default": resolve_color(foreground)}
 
     if regex == "":
         formatter.delete_watch_format(register)
         config.delete_watch(register)
     else:
-        formatter.add_filter_format(register, filter.format)
-        config.add_watch(register, filter)
+        formatter.add_filter_format(register, watch.format)
+        config.add_watch(register, watch)
 
 
 def set_watch_enable(config: Configuration, register: str, enabled: bool):
@@ -515,7 +533,7 @@ if __name__ == "__main__":
     interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
-    interact.on_set_watch(lambda params: set_filter_callback(formatter, config, params))
+    interact.on_set_watch(lambda register, params: set_watch_callback(formatter, config, register, params))
     interact.on_enable_watch(lambda watch, enabled: set_watch_enable(config, watch, enabled))
     interact.on_quit(lambda: quit_callback())
 
