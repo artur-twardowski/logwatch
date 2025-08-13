@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 
 from sys import argv
+from os import chdir
+from os.path import dirname, realpath, join
 from utils import pop_args, error, info, warning, set_log_level, VERSION
 from utils import lw_assert, parse_yes_no_option
 from queue import Queue
@@ -11,6 +13,7 @@ import subprocess as sp
 class Configuration:
     def __init__(self):
         self.log_level = 2
+        self.work_dir = None
         self.layout = None
         self.config_file_name = None
         self.run_server = None
@@ -29,12 +32,15 @@ class Configuration:
                       "Configuration file does not define a layout named \"%s\"" % layout_name)
             self.layout = data['layouts'][layout_name]
 
-            self.config_file_name = filename
+            self.config_file_name = realpath(filename)
 
 
-def read_args(args):
+def read_args(args, run_path):
     arg_queue = Queue()
     config = Configuration()
+    config.work_dir = dirname(realpath(run_path))
+    print(config.work_dir)
+
     for arg in args:
         arg_queue.put(arg)
 
@@ -55,12 +61,14 @@ def read_args(args):
 
     return config
 
-def instantiate_tmux_layout(config: dict, config_file_name):
+def instantiate_tmux_layout(config: dict, config_file_name, work_dir):
     lw_assert("panels" in config,
               "Layout configuration does not have \"panels\" node")
     lw_assert("layout" in config,
               "Layout configuration does not have \"layout\" node")
     layout = config["layout"]
+
+    lwview_path = join(work_dir, "lwview.py")
 
     cmdline_common = ["tmux", "split-window", "-b"]
 
@@ -70,7 +78,7 @@ def instantiate_tmux_layout(config: dict, config_file_name):
             cmdline_main_pane += ["-l", str(panel_config["size"])]
 
         if "view" in panel_config:
-            cmdline_lwview = "./lwview.py -c %s %s" % (config_file_name, panel_config['view'])
+            cmdline_lwview = "%s -c %s %s" % (lwview_path, config_file_name, panel_config['view'])
             sp.run(cmdline_main_pane + [cmdline_lwview])
         elif "command" in panel_config:
             sp.run(cmdline_main_pane + [panel_config["command"]])
@@ -85,7 +93,7 @@ def instantiate_tmux_layout(config: dict, config_file_name):
 
 def instantiate_layout(config: Configuration, config_file_name):
     ENGINES = {
-        "tmux": lambda c, f: instantiate_tmux_layout(c, f)
+        "tmux": lambda c, f: instantiate_tmux_layout(c, f, config.work_dir)
     }
     lw_assert("engine" in config.layout,
               "No \"engine\" field in layout_config")
@@ -98,8 +106,9 @@ def instantiate_layout(config: Configuration, config_file_name):
         do_run_server = "run-server" in config.layout and config.layout["run-server"]
     
     if do_run_server:
+        lwserver_path = join(config.work_dir, "lwserver.py")
         info("Starting server")
-        sp.Popen(["./lwserver.py", "-c", config_file_name])
+        sp.Popen([lwserver_path, "-c", config_file_name])
         sleep(0.3) # TODO: should check if the server was actually started
 
     ENGINES[config.layout["engine"]](config.layout, config_file_name)
@@ -108,7 +117,9 @@ def instantiate_layout(config: Configuration, config_file_name):
 if __name__ == "__main__":
     set_log_level(3)
     info("*** LOGWATCH v%s: lwrun" % VERSION)
-    config = read_args(argv[1:])
+    config = read_args(argv[1:], argv[0])
     set_log_level(config.log_level)
+
+    chdir(config.work_dir)
     instantiate_layout(config, config.config_file_name)
 
