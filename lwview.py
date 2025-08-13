@@ -14,10 +14,20 @@ from view.configuration import Configuration, Watch
 import yaml
 import re
 
+
+class MultiModeSubprompt:
+    def __init__(self, subprompt, current_value, fmt=None, value_on_empty=""):
+        self.subprompt = subprompt
+        self.current_value = current_value
+        self.format = fmt
+        self.value_on_empty = value_on_empty
+
+
 class InteractiveModeContext:
     PREDICATE_MODE = 1
     TEXT_INPUT_MODE = 2
     MULTI_INPUT_MODE = 3
+    MESSAGE_MODE = 4
 
     AVAILABLE_REGISTERS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -83,7 +93,15 @@ class InteractiveModeContext:
                 else:
                     arrow = "\u2195" # Up/down arrow
 
-            return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._buf_index], self._text_input_buffer[self._buf_index])
+            disp_value = self._text_input_buffer[self._buf_index]
+            if disp_value == "":
+                disp_value = "\x1b[%sm%s" % (
+                    ansi_format1((3, 245)),
+                    self._values_on_empty[self._buf_index])
+
+            return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._buf_index], disp_value)
+        elif self._input_mode == self.MESSAGE_MODE:
+            return self._prompt
 
 
     def on_command_buffer_changed(self, callback: callable):
@@ -119,23 +137,25 @@ class InteractiveModeContext:
         self._input_mode = self.PREDICATE_MODE
         self._context = kwargs
 
-    def _enter_multi_mode(self, command, prompt, fields, **kwargs):
+    def _enter_multi_mode(self, command, prompt, fields: list, **kwargs):
         self._command_buffer = command
         self._input_mode = self.MULTI_INPUT_MODE
         self._prompt = prompt
         self._subprompts = [""] * len(fields)
         self._text_input_buffer = [""] * len(fields)
+        self._values_on_empty = [""] * len(fields)
         for field_ix, field in enumerate(fields):
-            if isinstance(field, (list, tuple)):
-                assert len(field) == 2
-                self._subprompts[field_ix] = field[0]
-                self._text_input_buffer[field_ix] = field[1]
-            else:
-                self._subprompts[field_ix] = field
-                self._text_input_buffer[field_ix] = ""
+            assert isinstance(field, MultiModeSubprompt)
+            self._subprompts[field_ix] = field.subprompt
+            self._text_input_buffer[field_ix] = field.current_value
+            self._values_on_empty[field_ix] = field.value_on_empty
 
         self._buf_index = 0
         self._context = kwargs
+
+    def _enter_message_mode(self, message):
+        self._input_mode = self.MESSAGE_MODE
+        self._prompt = message
 
     def _find_first_available_watch(self):
         for w in self.AVAILABLE_REGISTERS:
@@ -159,17 +179,20 @@ class InteractiveModeContext:
             if replacement is None:
                 replacement = ""
 
-            self._enter_multi_mode(self._command_buffer, "Set watch '%c" % register, [
-                ("Regular expression: ", regex),
-                ("Replacement: ", replacement),
-                ("Background color: ", str(bg_color)),
-                ("Foreground color: ", str(fg_color))],
+            self._enter_multi_mode(self._command_buffer, "Set watch '%c" % register, fields=[
+                MultiModeSubprompt("Regular expression: ", regex),
+                MultiModeSubprompt("Replacement: ", replacement, value_on_empty="No replacement"),
+                MultiModeSubprompt("Background color: ", str(bg_color)),
+                MultiModeSubprompt("Foreground color: ", str(fg_color))],
                 register=register,
                 set_watch=True)
         else:
-            self._set_watch_cb(self._context['register'], self._text_input_buffer)
-            self._reset_command_buffer()
-            self._enter_predicate_mode()
+            try:
+                self._set_watch_cb(self._context['register'], self._text_input_buffer)
+                self._reset_command_buffer()
+                self._enter_predicate_mode()
+            except Exception as ex:
+                self._enter_message_mode("Error: %s" % ex)
 
     def _handle_command(self):
         command = self._command_buffer
@@ -197,7 +220,7 @@ class InteractiveModeContext:
         elif command[0] == "'" and command[2] == "w":
             self._handle_set_watch(command[1])
         elif command[0] == "'" and command[2] == "x":
-            self._set_watch_cb((command[1], '', -1, -1))
+            self._set_watch_cb(command[1], ('', '', -1, -1))
         elif command[0] == "'" and command[2] == "d":
             self._set_watch_enable_cb(command[1], False)
         elif command[0] == "'" and command[2] == "e":
@@ -265,6 +288,11 @@ class InteractiveModeContext:
         elif not self._read_key_common(key):
             self._text_input_buffer[self._buf_index] += key
 
+    def _read_key_message(self, key):
+        if key in ["<Enter>", "<ESC>"]:
+            self._input_mode = self.PREDICATE_MODE
+            self._reset_command_buffer()
+
     def read_key(self, term: TerminalRawMode):
         key = term.read_key()
         if key != "":
@@ -274,8 +302,11 @@ class InteractiveModeContext:
                 self._read_key_text_input(key)
             elif self._input_mode == self.MULTI_INPUT_MODE:
                 self._read_key_multi_input(key)
+            elif self._input_mode == self.MESSAGE_MODE:
+                self._read_key_message(key)
 
             self._command_buffer_changed_cb(self._command_buffer)
+
 
 class ConsoleOutput:
     def __init__(self, config: Configuration, formatter: Formatter, term: TerminalRawMode, interactive: InteractiveModeContext):
@@ -506,6 +537,8 @@ def set_watch_callback(formatter: Formatter, config: Configuration, register: st
     else:
         formatter.add_filter_format(register, watch.format)
         config.add_watch(register, watch)
+
+    watch.compile_regex()
 
 
 def set_watch_enable(config: Configuration, register: str, enabled: bool):
