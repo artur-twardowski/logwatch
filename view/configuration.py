@@ -6,9 +6,11 @@ import yaml
 class Watch:
     def __init__(self):
         self.regex = None
+        self.replacement = None
         self.format = Format()
         self.enabled = True
         self._prepared_regex = None
+        self.matches = []
 
     def set_regex(self, regex):
         self.regex = regex
@@ -16,7 +18,16 @@ class Watch:
 
     def match(self, line):
         result = self._prepared_regex.search(line)
-        return result is not None
+        if result is not None:
+            self.matches.clear()
+            hit = self._prepared_regex.findall(line)[0]
+            if isinstance(hit, tuple):
+                self.matches = list(hit)
+            else:
+                self.matches = [hit]
+            return True
+        else:
+            return False
 
 class Configuration:
     DEFAULT_LINE_FORMAT = "{format:endpoint}{endpoint:8} {seq:6} {time} {data}"
