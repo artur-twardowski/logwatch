@@ -14,10 +14,20 @@ from view.configuration import Configuration, Watch
 import yaml
 import re
 
+
+class MultiModeSubprompt:
+    def __init__(self, subprompt, current_value, fmt=None, value_on_empty=""):
+        self.subprompt = subprompt
+        self.current_value = current_value
+        self.format = fmt
+        self.value_on_empty = value_on_empty
+
+
 class InteractiveModeContext:
     PREDICATE_MODE = 1
     TEXT_INPUT_MODE = 2
     MULTI_INPUT_MODE = 3
+    MESSAGE_MODE = 4
 
     AVAILABLE_REGISTERS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -37,29 +47,14 @@ class InteractiveModeContext:
         self._buf_index = 0
         self._context = {}
 
-        # p   - pause
-        # ap  - pause, analysis mode
-        # r   - resume
-        # q   - quit
-        # w   - set new filter in first available register
-        # 'Rs - set filter in register R
-        # 'Rx - clear filter register R
-        # 'Rd - disable filter from register R
-        # 'Re - enable filter from register R
-        # "Rs - set command in register R
-        # "Rx - clear command register R
-        # "Re - execute command from register R
-        # !R  - same as "Re
-        # <M-0>..<M-9> - same as "0e .. "9e
-
         self._syntax_tree = {
-            "p": "eval",
-            "a": {"p": "eval"},
-            "r": "eval",
-            "q": "eval",
-            "w": "eval",
-            "'": {},
-            "\"": {}
+            "p": "eval",         # p  - pause
+            "a": {"p": "eval"},  # ap - analysis pause
+            "r": "eval",         # r - resume
+            "q": "eval",         # q - quit
+            "w": "eval",         # w - set watch in first free register
+            "'": {},             # '... - operation on watch register
+            "\"": {}             # "... - operation on command register
         }
 
 
@@ -67,7 +62,12 @@ class InteractiveModeContext:
             self._syntax_tree[k] = "continue"
 
         for k in self.AVAILABLE_REGISTERS:
-            self._syntax_tree["'"][k] = {"w": "eval", "d": "eval", "e": "eval", "x": "eval"}
+            self._syntax_tree["'"][k] = {
+                    "w": "eval",   # 'Rw Set a watch in register R
+                    "d": "eval",   # 'Rd Disable the watch
+                    "e": "eval",   # 'Re Enable the watch
+                    "x": "eval"    # 'Rx Delete the watch
+            }
 
         self._syntax_tree_ptr = self._syntax_tree
 
@@ -93,7 +93,15 @@ class InteractiveModeContext:
                 else:
                     arrow = "\u2195" # Up/down arrow
 
-            return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._buf_index], self._text_input_buffer[self._buf_index])
+            disp_value = self._text_input_buffer[self._buf_index]
+            if disp_value == "":
+                disp_value = "\x1b[%sm%s" % (
+                    ansi_format1((3, 245)),
+                    self._values_on_empty[self._buf_index])
+
+            return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._buf_index], disp_value)
+        elif self._input_mode == self.MESSAGE_MODE:
+            return self._prompt
 
 
     def on_command_buffer_changed(self, callback: callable):
@@ -129,23 +137,25 @@ class InteractiveModeContext:
         self._input_mode = self.PREDICATE_MODE
         self._context = kwargs
 
-    def _enter_multi_mode(self, command, prompt, fields, **kwargs):
+    def _enter_multi_mode(self, command, prompt, fields: list, **kwargs):
         self._command_buffer = command
         self._input_mode = self.MULTI_INPUT_MODE
         self._prompt = prompt
         self._subprompts = [""] * len(fields)
         self._text_input_buffer = [""] * len(fields)
+        self._values_on_empty = [""] * len(fields)
         for field_ix, field in enumerate(fields):
-            if isinstance(field, (list, tuple)):
-                assert len(field) == 2
-                self._subprompts[field_ix] = field[0]
-                self._text_input_buffer[field_ix] = field[1]
-            else:
-                self._subprompts[field_ix] = field
-                self._text_input_buffer[field_ix] = ""
+            assert isinstance(field, MultiModeSubprompt)
+            self._subprompts[field_ix] = field.subprompt
+            self._text_input_buffer[field_ix] = field.current_value
+            self._values_on_empty[field_ix] = field.value_on_empty
 
         self._buf_index = 0
         self._context = kwargs
+
+    def _enter_message_mode(self, message):
+        self._input_mode = self.MESSAGE_MODE
+        self._prompt = message
 
     def _find_first_available_watch(self):
         for w in self.AVAILABLE_REGISTERS:
@@ -158,20 +168,31 @@ class InteractiveModeContext:
             if register in self._config.watches:
                 watch = self._config.watches[register]
                 regex = watch.regex
+                replacement = watch.replacement
                 bg_color, fg_color = watch.format.get()
             else:
                 regex = ""
+                replacement = None
                 bg_color, fg_color = get_default_register_format(register)
-            self._enter_multi_mode(self._command_buffer, "Set watch '%c" % register, [
-                ("Regular expression: ", regex),
-                ("Background color: ", str(bg_color)),
-                ("Foreground color: ", str(fg_color))],
+
+            # TODO: should not be required
+            if replacement is None:
+                replacement = ""
+
+            self._enter_multi_mode(self._command_buffer, "Set watch '%c" % register, fields=[
+                MultiModeSubprompt("Regular expression: ", regex),
+                MultiModeSubprompt("Replacement: ", replacement, value_on_empty="No replacement"),
+                MultiModeSubprompt("Background color: ", str(bg_color)),
+                MultiModeSubprompt("Foreground color: ", str(fg_color))],
                 register=register,
                 set_watch=True)
         else:
-            self._set_watch_cb((self._context['register'], self._text_input_buffer[0], self._text_input_buffer[1], self._text_input_buffer[2]))
-            self._reset_command_buffer()
-            self._enter_predicate_mode()
+            try:
+                self._set_watch_cb(self._context['register'], self._text_input_buffer)
+                self._reset_command_buffer()
+                self._enter_predicate_mode()
+            except Exception as ex:
+                self._enter_message_mode("Error: %s" % ex)
 
     def _handle_command(self):
         command = self._command_buffer
@@ -199,7 +220,7 @@ class InteractiveModeContext:
         elif command[0] == "'" and command[2] == "w":
             self._handle_set_watch(command[1])
         elif command[0] == "'" and command[2] == "x":
-            self._set_watch_cb((command[1], '', -1, -1))
+            self._set_watch_cb(command[1], ('', '', -1, -1))
         elif command[0] == "'" and command[2] == "d":
             self._set_watch_enable_cb(command[1], False)
         elif command[0] == "'" and command[2] == "e":
@@ -267,6 +288,11 @@ class InteractiveModeContext:
         elif not self._read_key_common(key):
             self._text_input_buffer[self._buf_index] += key
 
+    def _read_key_message(self, key):
+        if key in ["<Enter>", "<ESC>"]:
+            self._input_mode = self.PREDICATE_MODE
+            self._reset_command_buffer()
+
     def read_key(self, term: TerminalRawMode):
         key = term.read_key()
         if key != "":
@@ -276,8 +302,11 @@ class InteractiveModeContext:
                 self._read_key_text_input(key)
             elif self._input_mode == self.MULTI_INPUT_MODE:
                 self._read_key_multi_input(key)
+            elif self._input_mode == self.MESSAGE_MODE:
+                self._read_key_message(key)
 
             self._command_buffer_changed_cb(self._command_buffer)
+
 
 class ConsoleOutput:
     def __init__(self, config: Configuration, formatter: Formatter, term: TerminalRawMode, interactive: InteractiveModeContext):
@@ -312,9 +341,18 @@ class ConsoleOutput:
         if matched_register is not None:
             data['watch'] = matched_register
             data['watch-symbol'] = render_watch_register(matched_register)
+            data['matches'] = watch.matches
+
+            # TODO: other condition should not be required
+            if watch.replacement is not None and watch.replacement != "":
+                repl = watch.replacement
+                for ix, match in enumerate(data['matches']):
+                    repl = repl.replace('\\%d' % (ix + 1), match)
+                data['data'] = repl
         else:
             data['watch'] = ""
             data['watch-symbol'] = "   "
+            data['matches'] = []
 
         if not self._config.filtered_mode or matched_register is not None:
             self._terminal.reset_current_line()
@@ -484,20 +522,23 @@ def resume_callback(console_output):
     console_output.resume()
 
 
-def set_filter_callback(formatter: Formatter, config: Configuration, params: tuple):
-    register, regex, background, foreground = params
-    filter = Watch()
-    filter.set_regex(regex)
-    filter.enabled = True
-    filter.format.background_color = {"default": resolve_color(background)}
-    filter.format.foreground_color = {"default": resolve_color(foreground)}
+def set_watch_callback(formatter: Formatter, config: Configuration, register: str, params: tuple):
+    regex, replacement, background, foreground = params
+    watch = Watch()
+    watch.set_regex(regex)
+    watch.replacement = replacement
+    watch.enabled = True
+    watch.format.background_color = {"default": resolve_color(background)}
+    watch.format.foreground_color = {"default": resolve_color(foreground)}
 
     if regex == "":
         formatter.delete_watch_format(register)
         config.delete_watch(register)
     else:
-        formatter.add_filter_format(register, filter.format)
-        config.add_watch(register, filter)
+        formatter.add_filter_format(register, watch.format)
+        config.add_watch(register, watch)
+
+    watch.compile_regex()
 
 
 def set_watch_enable(config: Configuration, register: str, enabled: bool):
@@ -525,7 +566,7 @@ if __name__ == "__main__":
     interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
-    interact.on_set_watch(lambda params: set_filter_callback(formatter, config, params))
+    interact.on_set_watch(lambda register, params: set_watch_callback(formatter, config, register, params))
     interact.on_enable_watch(lambda watch, enabled: set_watch_enable(config, watch, enabled))
     interact.on_quit(lambda: quit_callback())
 

@@ -6,17 +6,40 @@ import yaml
 class Watch:
     def __init__(self):
         self.regex = None
+        self.replacement = None
         self.format = Format()
         self.enabled = True
         self._prepared_regex = None
+        self.matches = []
 
     def set_regex(self, regex):
         self.regex = regex
-        self._prepared_regex = re.compile(regex)
+
+    def compile_regex(self):
+        try:
+            self._prepared_regex = re.compile(self.regex)
+        except Exception:
+            self._prepared_regex = None
+            raise
+
+    def is_regex_valid(self):
+        return self._prepared_regex is not None
 
     def match(self, line):
+        if self._prepared_regex is None:
+            return False
+
         result = self._prepared_regex.search(line)
-        return result is not None
+        if result is not None:
+            self.matches.clear()
+            hit = self._prepared_regex.findall(line)[0]
+            if isinstance(hit, tuple):
+                self.matches = list(hit)
+            else:
+                self.matches = [hit]
+            return True
+        else:
+            return False
 
 class Configuration:
     DEFAULT_LINE_FORMAT = "{format:endpoint}{endpoint:8} {seq:6} {time} {data}"
@@ -56,6 +79,7 @@ class Configuration:
         lw_assert(len(node["register"]) == 1, "Watch register name must be a single character")
 
         watch.set_regex(node['regex'])
+        watch.compile_regex()
         watch.name = node.get('name', watch.regex)
         watch.enabled = node.get('enabled', True)
         watch.format.background_color['default'] = resolve_color(node.get('background-color', 'none'))
