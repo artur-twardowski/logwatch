@@ -5,7 +5,7 @@ class Configuration:
         self.startup_actions = []
         self.shutdown_actions = []
         self.subprocesses = []
-        self.socket = None
+        self.socket_port = None
         self.websocket = None
         self.late_join_buf_size = None
         self.stay_active = False
@@ -17,7 +17,7 @@ class Configuration:
 
             server_conf = data['server']
             
-            self.socket = server_conf.get('socket-port', None)
+            self.socket_port = server_conf.get('socket-port', None)
             self.websocket = server_conf.get('websocket-port', None)
             self.late_join_buf_size = server_conf.get('late-joiners-buffer-size', None)
             self.stay_active = server_conf.get('stay-active', self.stay_active)

@@ -46,15 +46,17 @@ def read_args(args, run_path):
 
     while not arg_queue.empty():
         arg = arg_queue.get()
-        if arg in ['-c', '--config']:
-            config_file, layout_name = pop_args(arg_queue, arg, "file-name", "layout-name")
-            config.read(config_file, layout_name)
-        elif arg in ['-s', '--run-server']:
+        if arg in ['-s', '--run-server']:
             run_server_s, = pop_args(arg_queue, arg, "no/yes")
             config.run_server = parse_yes_no_option(arg, run_server_s)
 
         elif arg in ['-v', '--verbose']:
             config.log_level += 1
+
+        elif not arg.startswith('-'):
+            layout_name, = pop_args(arg_queue, "", "layout-name")
+            config.read(arg, layout_name)
+
         else:
             print("Unknown option: %s" % arg)
             exit(1)
@@ -108,7 +110,7 @@ def instantiate_layout(config: Configuration, config_file_name):
     if do_run_server:
         lwserver_path = join(config.work_dir, "lwserver.py")
         info("Starting server")
-        sp.Popen([lwserver_path, "-c", config_file_name])
+        sp.Popen([lwserver_path, config_file_name])
         sleep(0.3) # TODO: should check if the server was actually started
 
     ENGINES[config.layout["engine"]](config.layout, config_file_name)

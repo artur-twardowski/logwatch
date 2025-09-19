@@ -5,7 +5,7 @@ import json
 import signal
 from time import sleep
 from network.servers import GenericTCPServer
-from utils import pop_args, error, info, debug, set_log_level, VERSION
+from utils import pop_args, error, info, debug, set_log_level, inc_log_level, VERSION
 from utils import parse_yes_no_option
 from server.configuration import Configuration
 from server.subprocess import SubprocessCommunication
@@ -138,18 +138,31 @@ def read_args(args):
         if arg in ['-p', '--process']:
             endpoint_name, command_line = pop_args(arg_queue, arg, "endpoint-name", "command")
             config.subprocesses.append((endpoint_name, command_line))
-        elif arg in ['-S', '--socket']:
+        elif arg in ['-P', '--port']:
             port, = pop_args(arg_queue, arg, "port")
-            config.socket = int(port)
+            config.socket_port = int(port)
         elif arg in ['-a', '--stay-active']:
             stay_active_s, = pop_args(arg_queue, arg, "yes/no")
             config.stay_active = parse_yes_no_option(arg, stay_active_s)
-        elif arg in ['-c', '--config']:
-            config_file, = pop_args(arg_queue, arg, "file-name")
-            config.read(config_file)
+        elif arg == "--verbose":
+            inc_log_level(1)
+        elif arg.startswith('-v'):
+            inc_log_level(len(arg) - 1)
 
         elif arg in ['--help']:
-            print("USAGE: %s [-s | --subprocess <endpoint-name> <command>]*")
+            print("USAGE: %s <config-file> [options]")
+            print("Available options:")
+            print("\n * -p | --process <endpoint-name> <command>")
+            print("   Add a subprocess endpoint executing the specified command")
+            print("\n * -P | --port <port>")
+            print("   Override the port number at which the server will listen")
+            print("\n * -a | --stay-active <yes|no>")
+            print("   Override the stay-active option from the configuration")
+            print("\n * -v[v...] | --verbose")
+            print("   Increase the level of verbosity of console logs")
+
+        elif not arg.startswith('-'):
+            config.read(arg)
         else:
             print("Unknown option: %s" % arg)
             exit(1)
@@ -185,14 +198,14 @@ class TCPServer(GenericTCPServer):
 
 
 if __name__ == "__main__":
-    set_log_level(3)
-    info("*** LOGWATCH v%s: lwserver" % VERSION)
+    set_log_level(1)
+    print("*** LOGWATCH v%s: lwserver" % VERSION)
     config = read_args(argv[1:])
     server_manager = ServiceManager()
     server_manager.set_late_join_buf_size(config.late_join_buf_size)
 
-    if config.socket is not None:
-        server_manager.register(TCPServer(config.socket, server_manager))
+    if config.socket_port is not None:
+        server_manager.register(TCPServer(config.socket_port, server_manager))
 
     if not server_manager.run_all():
         error("Failed to start the server")

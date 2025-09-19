@@ -11,6 +11,11 @@ def set_log_level(level):
     log_level = level
 
 
+def inc_log_level(amount: int):
+    global log_level
+    log_level += amount
+
+
 def debug(message):
     global log_level
     if log_level >= 4:
