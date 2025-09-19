@@ -3,6 +3,8 @@ import threading as thrd
 from utils import info
 import subprocess as sp
 from time import sleep
+import os
+import signal
 
 class SubprocessCommunication:
     def __init__(self, command_line, endpoint_name, servers):
@@ -12,10 +14,15 @@ class SubprocessCommunication:
         self._servers = servers
         self._worker_thread = None
         self._active = False
+        self._on_command_finished = None
+        self._pid = None
 
     def run(self):
         self._worker_thread = thrd.Thread(target=self._worker)
         self._worker_thread.start()
+
+    def set_command_finished_callback(self, cb: callable):
+        self._on_command_finished = cb
 
     def wait(self):
         self._worker_thread.join()
@@ -29,6 +36,9 @@ class SubprocessCommunication:
                         stdout=sp.PIPE,
                         stderr=sp.PIPE,
                         universal_newlines=True)
+
+        self._pid = proc.pid
+        info("Endpoint %s: PID %d" % (self._endpoint_name, self._pid))
 
         stdout_thread = thrd.Thread(target=self._receiver, args=(proc.stdout, 'stdout'))
         stderr_thread = thrd.Thread(target=self._receiver, args=(proc.stderr, 'stderr'))
@@ -45,6 +55,14 @@ class SubprocessCommunication:
 
         info("Endpoint %s: command returned with exit code %d" % (self._endpoint_name, exitcode))
         self._active = False
+
+        if self._on_command_finished is not None:
+            self._on_command_finished()
+
+    def stop(self):
+        if self._pid is not None:
+            os.killpg(os.getpgid(self._pid), signal.SIGTERM)
+
 
     def is_active(self):
         return self._active

@@ -2,13 +2,128 @@
 from sys import argv
 from queue import Queue
 import json
+import signal
 from time import sleep
 from network.servers import GenericTCPServer
-from utils import pop_args, error, info, set_log_level, VERSION
+from utils import pop_args, error, info, debug, set_log_level, VERSION
 from utils import parse_yes_no_option
 from server.configuration import Configuration
 from server.subprocess import SubprocessCommunication
 from server.service_manager import ServiceManager
+
+class StartupShutdownState:
+    def __init__(self, state_machine, actions, server_manager, next_state):
+        self._state_machine = state_machine
+        self._actions = actions
+        self._action_ix = 0
+        self._server_manager = server_manager
+        self._next_state = next_state
+
+    def _execute_action(self, action):
+        if "command" in action:
+            subproc = SubprocessCommunication(action["command"],
+                                              "system",
+                                              self._server_manager)
+            subproc.set_command_finished_callback(
+                lambda: self._state_machine.transition(None, "next"))
+            subproc.run()
+
+    def on_event(self, event_name):
+        if event_name == "begin":
+            self._action_ix = 0
+            self._execute_action(self._actions[self._action_ix])
+
+        elif event_name == "next":
+            self._action_ix += 1
+            if self._action_ix >= len(self._actions):
+                self._state_machine.transition(self._next_state, "begin")
+            else:
+                self._execute_action(self._actions[self._action_ix])
+
+
+class ActiveState:
+    def __init__(self, state_machine, subprocesses: list):
+        self._state_machine = state_machine
+        self._subprocesses = subprocesses
+        self._active_subprocesses = 0
+
+    def _run_subprocesses(self):
+        for subproc in self._subprocesses:
+            subproc.set_command_finished_callback(
+                lambda: self._state_machine.transition("active", "command-finished"))
+            subproc.run()
+            self._active_subprocesses += 1
+
+    def on_event(self, event_name):
+        if event_name == "begin":
+            self._run_subprocesses()
+
+        elif event_name == "command-finished":
+            self._active_subprocesses -= 1
+            if self._active_subprocesses == 0:
+                self._state_machine.transition("shutdown", "begin")
+
+        elif event_name == "stop":
+            for subproc in self._subprocesses:
+                subproc.stop()
+
+class StoppedState:
+    def __init__(self, state_machine):
+        self._state_machine = state_machine
+
+    def on_event(self, event_name):
+        if event_name == "begin":
+            self._state_machine.stop()
+
+class StateMachine:
+    def __init__(self, config: Configuration, subprocesses: list, server_manager):
+        self._config = config
+
+        self._states = {
+            "startup": StartupShutdownState(
+                state_machine=self,
+                actions=config.startup_actions,
+                server_manager=server_manager,
+                next_state="active"),
+            "active": ActiveState(
+                state_machine=self,
+                subprocesses=subprocesses),
+            "shutdown": StartupShutdownState(
+                state_machine=self,
+                actions=config.shutdown_actions,
+                server_manager=server_manager,
+                next_state="stopped"),
+            "stopped": StoppedState(self)
+        }
+
+        self._state = None
+        self._state_name = ""
+        self._event = None
+        self._active = False
+
+    def start(self):
+        self._state_name = "startup"
+        self._state = self._states[self._state_name]
+        self._event = "begin"
+        self._active = True
+
+    def stop(self):
+        self._active = False
+
+    def transition(self, state, event):
+        msg = "[%s]%s" % (self._state_name, "\u2500" * 4)
+        if state is not None:
+            self._state = self._states[state]
+            self._state_name = state
+        msg += "%s%s>[%s]" % (event, "\u2500" * 4, self._state_name)
+        self._event = event
+        debug(msg)
+
+    def execute(self):
+        current_event = self._event
+        self._event = None
+        self._state.on_event(current_event)
+        return self._active
 
 
 def read_args(args):
@@ -69,15 +184,6 @@ class TCPServer(GenericTCPServer):
                 self._recv_buffer.append(byte)
 
 
-def any_active(subprocesses: list):
-    result = False
-    for subproc in subprocesses:
-        if subproc.is_active():
-            result = True
-            break
-    return result
-
-
 if __name__ == "__main__":
     set_log_level(3)
     info("*** LOGWATCH v%s: lwserver" % VERSION)
@@ -96,23 +202,26 @@ if __name__ == "__main__":
     for endpoint_name, command in config.subprocesses:
         subproc = SubprocessCommunication(command, endpoint_name, server_manager)
         subprocesses.append(subproc)
-        subproc.run()
+
+    state_machine = StateMachine(config, subprocesses, server_manager)
+    state_machine.start()
+
+    signal.signal(signal.SIGINT, lambda s, f: state_machine.transition(None, "stop"))
+    signal.signal(signal.SIGTERM, lambda s, f: state_machine.transition(None, "stop"))
 
     keepalive_counter = 0
-    while True:
+    while state_machine.execute():
         try:
             if keepalive_counter % 10 == 0:
                 server_manager.broadcast_keepalive(keepalive_counter / 10)
             keepalive_counter += 1
             sleep(0.1)
 
-            if not config.stay_active and not any_active(subprocesses):
-                info("No subprocesses are running, stopping the server")
-                break
         except KeyboardInterrupt:
             info("User-triggered termination, stopping the server")
-            break
+            state_machine.transition(None, "stop")
         except Exception as ex:
             error("Server error: %s. Stopping the server" % ex)
+            state_machine.transition(None, "stop")
 
     server_manager.stop_all()

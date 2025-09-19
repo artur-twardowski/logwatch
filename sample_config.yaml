@@ -2,6 +2,15 @@ server:
   socket-port: 2207
   late-joiners-buffer-size: 1000
   stay-active: false
+  
+  startup:
+    - command: "echo \"startup 1\""
+    - command: "sleep 5"
+    - command: "echo \"startup 2\""
+
+  shutdown:
+    - command: "echo \"shutdown\""
+
   endpoints:
     - type: "subprocess"
       name: "command"
