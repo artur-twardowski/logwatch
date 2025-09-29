@@ -62,12 +62,12 @@ class ServiceManager:
             self.add_to_late_join_buf(record)
         self._line_seq_no += 1
 
-    def broadcast_keepalive(self, seq_no):
+    def broadcast_keepalive(self, seq_no, current_state, extra_info: dict = {}):
         for server in self._servers:
-            server.broadcast(json.dumps({
-                "type": "keepalive",
-                "seq": seq_no
-            }))
+            data = {
+                **{"type": "keepalive", "seq": seq_no, "state": current_state},
+                **extra_info}
+            server.broadcast(json.dumps(data))
 
     def broadcast_marker(self, name):
         today = datetime.now()

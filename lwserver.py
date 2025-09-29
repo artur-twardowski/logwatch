@@ -6,32 +6,44 @@ import signal
 from time import sleep
 from network.servers import GenericTCPServer
 from utils import pop_args, error, info, debug, set_log_level, inc_log_level, VERSION
-from utils import parse_yes_no_option
+from utils import parse_yes_no_option, warning
 from server.configuration import Configuration
 from server.subprocess import SubprocessCommunication
 from server.service_manager import ServiceManager
 
 class StartupShutdownState:
-    def __init__(self, state_machine, actions, server_manager, next_state):
+    def __init__(self, state_machine, actions, server_manager, next_state, state_after_stopped):
         self._state_machine = state_machine
         self._actions = actions
         self._action_ix = 0
         self._server_manager = server_manager
         self._next_state = next_state
+        self._state_after_stopped = state_after_stopped
+        self._subprocess = None
+        self._stopping = False
+
+    def _on_subprocess_finished(self):
+        if not self._stopping:
+            self._state_machine.transition(None, "next")
+        self._subprocess = None
 
     def _execute_action(self, action):
         if "command" in action:
-            subproc = SubprocessCommunication(action["command"],
-                                              "system",
-                                              self._server_manager)
-            subproc.set_command_finished_callback(
-                lambda: self._state_machine.transition(None, "next"))
-            subproc.run()
+            self._subprocess = SubprocessCommunication(action["command"],
+                                                       "system",
+                                                       self._server_manager)
+            self._subprocess.set_command_finished_callback(
+                lambda: self._on_subprocess_finished())
+            self._subprocess.run()
 
     def on_event(self, event_name):
         if event_name == "begin":
-            self._action_ix = 0
-            self._execute_action(self._actions[self._action_ix])
+            self._stopping = False
+            if len(self._actions) > 0:
+                self._action_ix = 0
+                self._execute_action(self._actions[self._action_ix])
+            else:
+                self._state_machine.transition(self._next_state, "begin")
 
         elif event_name == "next":
             self._action_ix += 1
@@ -39,6 +51,13 @@ class StartupShutdownState:
                 self._state_machine.transition(self._next_state, "begin")
             else:
                 self._execute_action(self._actions[self._action_ix])
+        
+        elif event_name == "stop":
+            print("Stopping -- to %s" % self._state_after_stopped)
+            self._stopping = True
+            if self._subprocess is not None:
+                self._subprocess.stop()
+            self._state_machine.transition(self._state_after_stopped, "begin")
 
 
 class ActiveState:
@@ -84,7 +103,8 @@ class StateMachine:
                 state_machine=self,
                 actions=config.startup_actions,
                 server_manager=server_manager,
-                next_state="active"),
+                next_state="active",
+                state_after_stopped="shutdown"),
             "active": ActiveState(
                 state_machine=self,
                 subprocesses=subprocesses),
@@ -92,7 +112,8 @@ class StateMachine:
                 state_machine=self,
                 actions=config.shutdown_actions,
                 server_manager=server_manager,
-                next_state="stopped"),
+                next_state="stopped",
+                state_after_stopped="stopped"),
             "stopped": StoppedState(self)
         }
 
@@ -109,6 +130,9 @@ class StateMachine:
 
     def stop(self):
         self._active = False
+
+    def get_state_name(self):
+        return self._state_name
 
     def transition(self, state, event):
         msg = "[%s]%s" % (self._state_name, "\u2500" * 4)
@@ -197,6 +221,10 @@ class TCPServer(GenericTCPServer):
                 self._recv_buffer.append(byte)
 
 
+def _on_signal(sig, frame, state_machine: StateMachine):
+    warning("Received signal %s" % signal.Signals(sig).name)
+    state_machine.transition(None, "stop")
+
 if __name__ == "__main__":
     set_log_level(1)
     print("*** LOGWATCH v%s: lwserver" % VERSION)
@@ -219,22 +247,24 @@ if __name__ == "__main__":
     state_machine = StateMachine(config, subprocesses, server_manager)
     state_machine.start()
 
-    signal.signal(signal.SIGINT, lambda s, f: state_machine.transition(None, "stop"))
-    signal.signal(signal.SIGTERM, lambda s, f: state_machine.transition(None, "stop"))
+    for sig in [signal.SIGINT, signal.SIGTERM]:
+        signal.signal(sig, lambda s, f: _on_signal(s, f, state_machine))
 
     keepalive_counter = 0
     while state_machine.execute():
         try:
-            if keepalive_counter % 10 == 0:
-                server_manager.broadcast_keepalive(keepalive_counter / 10)
+            if keepalive_counter % 4 == 0:
+                server_manager.broadcast_keepalive(int(keepalive_counter / 10), state_machine.get_state_name())
             keepalive_counter += 1
             sleep(0.1)
 
         except KeyboardInterrupt:
-            info("User-triggered termination, stopping the server")
+            warning("User-triggered termination, stopping the server")
             state_machine.transition(None, "stop")
         except Exception as ex:
             error("Server error: %s. Stopping the server" % ex)
             state_machine.transition(None, "stop")
+
+    server_manager.broadcast_keepalive(int(keepalive_counter / 10), state_machine.get_state_name())
 
     server_manager.stop_all()

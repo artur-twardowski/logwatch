@@ -281,6 +281,7 @@ class ConsoleOutput:
         self._held_lines_overflow = False
         self._drop_newest_lines = False
         self._status_line_req_update = True
+        self._server_state = ""
 
     def set_max_held_lines(self, size):
         if size is not None:
@@ -350,6 +351,9 @@ class ConsoleOutput:
         self._held_lines_overflow = False
         self.write_pending_lines()
 
+    def notify_server_state(self, state):
+        self._server_state = state
+
     def write_pending_lines(self):
         if self._pause:
             return
@@ -372,8 +376,15 @@ class ConsoleOutput:
                 self._print_line(data)
 
     def render_status_line(self):
+        STATE_MAP = {"startup": "\u2197",
+                     "active": "\u2506",
+                     "shutdown": "\u2198",
+                     "stopped": "\u2500"}
+
         if self._status_line_req_update:
             term.reset_current_line("43;30")
+
+            term.write("%s " % STATE_MAP.get(self._server_state, '?'))
             if self._pause:
                 if self._drop_newest_lines:
                     term.write("\u2507\u2507", flush=False)
@@ -426,6 +437,9 @@ class TCPClient(GenericTCPClient):
                             self._cout.print_line(data);
                         elif data['type'] == 'marker':
                             self._cout.print_marker(data)
+                        elif data['type'] == 'keepalive':
+                            self._cout.notify_server_state(data['state'])
+
                     except json.decoder.JSONDecodeError as err:
                         warning("Failed to parse JSON: %s: %s" % (err, data_recv_str))
 

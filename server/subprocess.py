@@ -1,6 +1,6 @@
 from queue import Queue
 import threading as thrd
-from utils import info
+from utils import info, debug, error
 import subprocess as sp
 from time import sleep
 import os
@@ -55,13 +55,20 @@ class SubprocessCommunication:
 
         info("Endpoint %s: command returned with exit code %d" % (self._endpoint_name, exitcode))
         self._active = False
+        self._pid = None
 
         if self._on_command_finished is not None:
             self._on_command_finished()
 
     def stop(self):
         if self._pid is not None:
-            os.killpg(os.getpgid(self._pid), signal.SIGTERM)
+            try:
+                os.killpg(os.getpgid(self._pid), signal.SIGTERM)
+                info("Endpoint %s: sent signal TERM" % self._endpoint_name)
+            except ProcessLookupError:
+                debug("Endpoint %s: process has already ended" % self._endpoint_name)
+            except Exception as ex:
+                error("Endpoint %s: %s" % (self._endpoint_name, str(ex)))
 
 
     def is_active(self):
