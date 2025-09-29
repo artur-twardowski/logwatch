@@ -4,14 +4,14 @@ server:
   stay-active: false
   
   startup:
-    - command: "echo \"sleeping 5 seconds 1\"; sleep 5"
-    - command: "echo \"sleeping 5 seconds 2\"; sleep 5"
-    - command: "echo \"sleeping 5 seconds 3\"; sleep 5"
+    - command: "echo \"STARTUP 1\"; sleep 2"
+    - command: "echo \"STARTUP 2\"; sleep 2"
+    - command: "echo \"STARTUP 3\"; sleep 2"
 
   shutdown:
-    - command: "echo \"sleeping 5 seconds 1\"; sleep 5"
-    - command: "echo \"sleeping 5 seconds 2\"; sleep 5"
-    - command: "echo \"sleeping 5 seconds 3\"; sleep 5"
+    - command: "echo \"SHUTDOWN 1\"; sleep 2"
+    - command: "echo \"SHUTDOWN 2\"; sleep 2"
+    - command: "echo \"SHUTDOWN 3\"; sleep 2"
 
   endpoints:
     - type: "subprocess"

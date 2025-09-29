@@ -253,7 +253,7 @@ if __name__ == "__main__":
     keepalive_counter = 0
     while state_machine.execute():
         try:
-            if keepalive_counter % 10 == 0:
+            if keepalive_counter % 4 == 0:
                 server_manager.broadcast_keepalive(int(keepalive_counter / 10), state_machine.get_state_name())
             keepalive_counter += 1
             sleep(0.1)
@@ -264,5 +264,7 @@ if __name__ == "__main__":
         except Exception as ex:
             error("Server error: %s. Stopping the server" % ex)
             state_machine.transition(None, "stop")
+
+    server_manager.broadcast_keepalive(int(keepalive_counter / 10), state_machine.get_state_name())
 
     server_manager.stop_all()
