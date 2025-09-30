@@ -2,26 +2,29 @@ import socket
 import selectors
 from types import SimpleNamespace
 import threading as thrd
-from utils import debug, info, error
+from utils import debug, info, error, warning
 from time import sleep
 import os
 
 
 class GenericTCPServer:
-    def __init__(self, port=None, filename=None):
+    def __init__(self, address=None, port=None, filename=None):
+        self._address = address
         self._port = port
         self._filename = filename
-        self._enabled = True
+        self._active = False
+        self._connected = False
         self._selector = selectors.DefaultSelector()
         self._listen_thread = None
         self._clients = {}
 
     def run(self):
+        self._active = True
         self._listen_thread = thrd.Thread(target=self._listen_worker)
         self._listen_thread.start()
 
     def stop(self):
-        self._enabled = False
+        self._active = False
         self._listen_thread.join()
 
     def _accept(self, client_sock):
@@ -60,13 +63,28 @@ class GenericTCPServer:
 
     def _listen_worker(self):
         if self._port is not None:
+            retry_count = 0
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                sock.bind(("127.0.0.1", self._port))
-                info("Listening on TCP port %d" % self._port)
-            except OSError:
-                error("Port %d is already in use" % self._port)
-                self._enabled = False
+            info("Trying to bind port %d" % self._port)
+            while not self._connected:
+                if not self._active:
+                    return
+
+                try:
+                    addr = self._address
+                    if addr is None:
+                        addr = "127.0.0.1"
+                    sock.bind((addr, self._port))
+                    self._connected = True
+                    info("Listening on TCP port %d" % self._port)
+                except OSError as ex:
+                    if retry_count < 60:
+                        warning("Cannot listen on port %d: %s, retrying in 5 seconds" % (self._port, ex))
+                        retry_count += 1
+                        sleep(5)
+                    else:
+                        error("Giving up")
+                        self._active = False
         elif self._filename is not None:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
@@ -74,16 +92,17 @@ class GenericTCPServer:
                 info("Listening on socket file %s" % self._filename)
             except OSError:
                 error("Could not open file %s" % self._filename)
-                self._enabled = False
+                self._active = False
         else:
             error("Either port number or socket file name must be specified")
-            self._enabled = False
+            self._active = False
+            return
 
         sock.listen()
         sock.setblocking(False)
         self._selector.register(sock, selectors.EVENT_READ, data=None)
 
-        while self._enabled:
+        while self._active:
             events = self._selector.select(timeout=1)
             for key, mask in events:
                 if key.data is None:
@@ -92,8 +111,13 @@ class GenericTCPServer:
                     self._serve(key.fileobj, key.data, mask)
             sleep(0.01)
 
+        info("Closing")
+
         if self._filename is not None:
             os.unlink(self._filename)
+        else:
+            self._selector.close()
+            sock.close()
 
     def broadcast(self, data):
         debug("Broadcasting message %s" % data)
@@ -118,5 +142,5 @@ class GenericTCPServer:
         pass
 
     def is_active(self):
-        return self._enabled
+        return self._active and self._connected
 

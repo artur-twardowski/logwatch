@@ -195,8 +195,8 @@ def read_args(args):
 
 
 class TCPServer(GenericTCPServer):
-    def __init__(self, port, server_manager: ServiceManager):
-        super().__init__(port)
+    def __init__(self, addr, port, server_manager: ServiceManager):
+        super().__init__(address=addr, port=port)
         self._server_manager = server_manager
         self._recv_buffer = bytearray()
 
@@ -233,7 +233,7 @@ if __name__ == "__main__":
     server_manager.set_late_join_buf_size(config.late_join_buf_size)
 
     if config.socket_port is not None:
-        server_manager.register(TCPServer(config.socket_port, server_manager))
+        server_manager.register(TCPServer(config.socket_addr, config.socket_port, server_manager))
 
     if not server_manager.run_all():
         error("Failed to start the server")

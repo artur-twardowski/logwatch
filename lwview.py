@@ -343,6 +343,13 @@ class ConsoleOutput:
         data['fd'] = 'marker'
         self._hold(data)
 
+    def print_message(self, msg):
+        self._hold({
+            "data": msg,
+            "endpoint": '_',
+            "fd": "self"
+        })
+
     def pause(self):
         self._pause = True
 
@@ -512,6 +519,10 @@ def set_watch_enable(config: Configuration, register: str, enabled: bool):
 def quit_callback():
     raise KeyboardInterrupt
 
+
+def disconnect_callback(console_output):
+    console_output.print_message("Disconnected from server")
+
 if __name__ == "__main__":
     set_log_level(3)
     info("*** LOGWATCH v%s: lwview" % VERSION)
@@ -539,20 +550,24 @@ if __name__ == "__main__":
     for filter_name, filter in config.watches.items():
         formatter.add_filter_format(filter_name, filter.format)
 
-    try:
-        client = TCPClient(config, console_output)
-        client.run()
-        client.send_enc({'type': 'get-late-join-records'})
+    app_active = True
+    client = TCPClient(config, console_output)
+    client.set_connection_loss_cb(lambda: disconnect_callback(console_output))
 
-        command_buffer = ""
-        while True:
+    while app_active:
+        try:
+            if not client.is_active():
+                try:
+                    client.run()
+                    client.send_enc({'type': 'get-late-join-records'})
+                except ConnectionRefusedError:
+                    sleep(0.1)
+
             console_output.write_pending_lines()
             console_output.render_status_line()
             interact.read_key(term)
-    except ConnectionRefusedError:
-        error("Could not connect to the server: connection refused")
-    except KeyboardInterrupt:
-        pass
-    finally:
-        client.stop()
-        term.exit_raw_mode()
+        except KeyboardInterrupt:
+            app_active = False
+
+    client.stop()
+    term.exit_raw_mode()

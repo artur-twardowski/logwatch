@@ -10,12 +10,13 @@ class GenericTCPClient:
         self._port = port
         self._socket = None
         self._receiver_thread = None
-        self._enabled = True
+        self._enabled = False
+        self._connection_loss_cb = None
 
     def run(self):
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._socket.connect((self._host, self._port))
-
+        self._enabled = True
         self._receiver_thread = thrd.Thread(target=self._receiver_worker)
         self._receiver_thread.start()
 
@@ -23,6 +24,12 @@ class GenericTCPClient:
         self._enabled = False
         if self._receiver_thread is not None:
             self._receiver_thread.join()
+
+    def is_active(self):
+        return self._enabled
+
+    def set_connection_loss_cb(self, callback: callable):
+        self._connection_loss_cb = callback
 
     def _receiver_worker(self):
         while self._enabled:
@@ -34,6 +41,11 @@ class GenericTCPClient:
 
             self.on_data_received(data_recv)
 
+        self._socket.close()
+
+        if self._connection_loss_cb is not None:
+            self._connection_loss_cb()
+
     def send(self, data):
         if isinstance(data, str):
             self._socket.sendall(bytes(data + '\0', 'utf-8'))
@@ -42,6 +54,4 @@ class GenericTCPClient:
 
     def on_data_received(self, data):
         pass
-
-
 

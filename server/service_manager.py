@@ -34,13 +34,20 @@ class ServiceManager:
         for server in self._servers:
             server.run()
 
-        sleep(0.2)
-        result = False
-        for server in self._servers:
-            if server.is_active():
-                result = True
-                break
-        return result
+        remaining_wait_time = 300
+        while remaining_wait_time > 0:
+            all_active = True
+            for server in self._servers:
+                if not server.is_active():
+                    all_active = False
+                    break
+
+            if all_active:
+                return True
+            else:
+                remaining_wait_time -= 1
+                sleep(1)
+        return False
 
     def stop_all(self):
         for server in self._servers:
