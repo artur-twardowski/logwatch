@@ -1,10 +1,19 @@
 import yaml
 from utils import lw_assert
+class SSHSessionConfig:
+    def __init__(self, host, port, user, command, options):
+        self.host = host
+        self.port = port
+        self.user = user
+        self.command = command
+        self.options = options
+
 class Configuration:
     def __init__(self):
         self.startup_actions = []
         self.shutdown_actions = []
         self.subprocesses = []
+        self.ssh_sessions = []
         self.socket_addr = None
         self.socket_port = None
         self.websocket = None
@@ -37,5 +46,21 @@ class Configuration:
 
                 if endpoint['type'] == 'subprocess':
                     lw_assert("command" in endpoint, "Subprocess endpoint must have a command specified")
-                    self.subprocesses.append((endpoint['name'], endpoint['command']))
+                    command = endpoint['command'].strip().replace('\n', ';')
+
+                    self.subprocesses.append((endpoint['name'], command))
+                elif endpoint['type'] == 'ssh':
+                    lw_assert("address" in endpoint, "SSH endpoint must have the host address specified")
+                    lw_assert("user" in endpoint, "SSH endpoint must have the user name specified")
+                    lw_assert("command" in endpoint, "SSH endpoint must have the command specified")
+
+                    command = endpoint['command'].strip().replace('\n', ';')
+
+                    self.ssh_sessions.append((endpoint['name'], SSHSessionConfig(
+                        host=endpoint['address'],
+                        port=endpoint.get('port', None),
+                        user=endpoint['user'],
+                        command=command,
+                        options=endpoint.get('options', {}))
+                    ))
 

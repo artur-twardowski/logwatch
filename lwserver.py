@@ -9,6 +9,7 @@ from utils import pop_args, error, info, debug, set_log_level, inc_log_level, VE
 from utils import parse_yes_no_option, warning
 from server.configuration import Configuration
 from server.subprocess import SubprocessCommunication
+from server.ssh_session import SSHSessionCommunication
 from server.service_manager import ServiceManager
 
 class StartupShutdownState:
@@ -243,6 +244,9 @@ if __name__ == "__main__":
     for endpoint_name, command in config.subprocesses:
         subproc = SubprocessCommunication(command, endpoint_name, server_manager)
         subprocesses.append(subproc)
+    for endpoint_name, ssh_session in config.ssh_sessions:
+        subprocesses.append(
+            SSHSessionCommunication(ssh_session, endpoint_name, server_manager))
 
     state_machine = StateMachine(config, subprocesses, server_manager)
     state_machine.start()
