@@ -130,7 +130,7 @@ def resolve_color(name: str):
             return -1
 
 
-class Format:
+class Style:
     DEFAULT_BG_COLOR = resolve_color("none")
     DEFAULT_FG_COLOR = resolve_color("white")
 
@@ -196,36 +196,154 @@ def superscript(s):
 def render_watch_register(r):
     return "\u257a%c\u2578" % r
 
+class TokenizationContext:
+    def __init__(self, compiled_result):
+        self._token = ""
+        self._compiled_result = compiled_result
+
+    def start_next(self, ch=''):
+        if self._token != "":
+            self._compiled_result.append(self._token)
+        self._token = ch
+
+    def append(self, ch):
+        self._token += ch
+
+
+class CompiledTag:
+    RESET_STYLE = 0
+    USE_ENDPOINT_STYLE = 1
+    USE_WATCH_STYLE = 2
+    USE_DEFAULT_STYLE = 3
+    PRINT_FIELD = 4
+
+    TRANSFORM_UPPERCASE = 0x01
+    TRANSFORM_LOWERCASE = 0x02
+    TRANSFORM_UPPER_INDEX = 0x04
+    TRANSFORM_LOWER_INDEX = 0x08
+
+    ALIGN_LEFT = 0
+    ALIGN_RIGHT = 1
+
+    def __init__(self, type):
+        self.type = type
+        self.field_name = None
+        self.field_transform = 0
+        self.field_width = None
+        self.field_align = None
+        self.field_pad = None
+
+class Format:
+    READING_LITERAL = 0
+    READING_TAG = 1
+
+    def __init__(self, format=None):
+        self._compiled_format = []
+        self._ctx = TokenizationContext(self._compiled_format)
+        if format is not None:
+            self.compile(format)
+
+    def get(self):
+        return self._compiled_format
+
+    def _compile_last_token(self):
+        token = "%s" % self._compiled_format[-1]
+        if token.startswith('format:'):
+            if token == "format:endpoint":
+                self._compiled_format[-1] = CompiledTag(CompiledTag.USE_ENDPOINT_STYLE)
+            if token == "format:watch":
+                self._compiled_format[-1] = CompiledTag(CompiledTag.USE_WATCH_STYLE)
+            if token == "format:default":
+                self._compiled_format[-1] = CompiledTag(CompiledTag.USE_DEFAULT_STYLE)
+            if token == "format:reset":
+                self._compiled_format[-1] = CompiledTag(CompiledTag.RESET_STYLE)
+        else:
+            pos = token.find(':')
+            tag = CompiledTag(CompiledTag.PRINT_FIELD)
+            if pos == -1:
+                tag.field_name = token
+            else:
+                tag.field_name = token[0:pos]
+                while pos < len(token) and token[pos] in ['^', '_', '<', '>', 'A', 'a', '0', ':']:
+                    if token[pos] == '^':
+                        tag.field_transform |= CompiledTag.TRANSFORM_UPPER_INDEX
+                    elif token[pos] == '_':
+                        tag.field_transform |= CompiledTag.TRANSFORM_LOWER_INDEX
+                    elif token[pos] == 'A':
+                        tag.field_transform |= CompiledTag.TRANSFORM_UPPERCASE
+                    elif token[pos] == 'a':
+                        tag.field_transform |= CompiledTag.TRANSFORM_LOWERCASE
+                    elif token[pos] == '<':
+                        tag.field_alignment = CompiledTag.ALIGN_LEFT
+                    elif token[pos] == '>':
+                        tag.field_alignment = CompiledTag.ALIGN_RIGHT
+                    elif token[pos] == '0':
+                        tag.field_pad = '0'
+                    pos += 1
+                if pos < len(token):
+                    tag.field_width = int(token[pos:])
+            self._compiled_format[-1] = tag
+
+    def compile(self, format: str):
+        self._compiled_format.clear()
+        state = self.READING_LITERAL
+
+        char_index = 0
+        while char_index < len(format):
+            ch = format[char_index]
+            if ch == '{':
+                if state == self.READING_LITERAL:
+                    state = self.READING_TAG
+                    self._ctx.start_next()
+                else:
+                    # TODO: emit an error
+                    continue
+            elif ch == '}':
+                if state == self.READING_TAG:
+                    state = self.READING_LITERAL
+                    self._ctx.start_next()
+                    self._compile_last_token()
+                else:
+                    self._ctx.append(ch)
+            else:
+                self._ctx.append(ch)
+
+            char_index += 1
+        self._ctx.start_next('')
+        print(self._compiled_format)
 
 class Formatter:
     FORMATTING_TAG_DELIM = "\x10"
     FORMATTING_RESET = "R"
     FORMATTING_ENDPOINT = "E"
-    FORMATTING_FILTER = "F"
+    FORMATTING_WATCH = "W"
     FORMATTING_DEFAULT = "D"
+    TAG_REGEX = r'(\{([A-Za-z0-9_-]+)(?::([^}]+))?\})'
 
     def __init__(self):
-        self._re_tag = re.compile(r'(\{([A-Za-z0-9_-]+)(?::([^}]+))?\})')
-        self._endpoint_formats = {}
-        self._filter_formats = {}
+        self._re_tag = re.compile(self.TAG_REGEX)
+        self._endpoint_styles = {}
+        self._filter_styles = {}
         pass
 
-    def add_endpoint_format(self, name, format: Format):
+    def add_endpoint_style(self, name, style: Style):
         debug("Adding formatting for endpoint %s: background=%s, foreground=%s" % (
-            name, format.background_color, format.foreground_color))
-        self._endpoint_formats[name] = format
+            name, style.background_color, style.foreground_color))
+        self._endpoint_styles[name] = style
 
-    def add_filter_format(self, register, format: Format):
+    def add_watch_format(self, register, style: Style):
         debug("Adding formatting for filter %s: background=%s, foreground=%s" % (
-            register, format.background_color, format.foreground_color))
-        self._filter_formats[register] = format
+            register, style.background_color, style.foreground_color))
+        self._watch_styles[register] = style
 
     def delete_watch_format(self, register):
-        if register in self._filter_formats:
-            del self._filter_formats[register]
+        if register in self._watch_styles:
+            del self._watch_styles[register]
 
     def get_filters(self):
-        return self._filter_formats
+        # TODO: Remove this function, holding watch information is not the responsibility
+        # of formatter.
+        return self._watch_styles
 
     def format_line(self, fmt, fields):
         tags = self._re_tag.findall(fmt)
@@ -242,8 +360,8 @@ class Formatter:
                 elif param == "endpoint":
                     replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_ENDPOINT + "\x1b[0m"
 
-                elif param == "filter":
-                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_FILTER + "\x1b[0m"
+                elif param == "watch":
+                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_WATCH + "\x1b[0m"
 
                 elif param =="default":
                     replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_DEFAULT + "\x1b[0m"
@@ -280,17 +398,17 @@ class Formatter:
         # Process the ANSI codes:
         #   - replace all the formatting reset messages (ESC[0m) with appropriate formatting
         #     as configured
-        reset_fmt = Format.DEFAULT_BG_COLOR, Format.DEFAULT_FG_COLOR
+        reset_fmt = Style.DEFAULT_BG_COLOR, Style.DEFAULT_FG_COLOR
 
-        if 'watch' in fields and fields['watch'] in self._filter_formats:
-            watch_fmt = self._filter_formats[fields['watch']].get(fields['fd'])
+        if 'watch' in fields and fields['watch'] in self._filter_styles:
+            watch_fmt = self._watch_styles[fields['watch']].get(fields['fd'])
             default_fmt = watch_fmt
         else:
             watch_fmt = reset_fmt
             default_fmt = None
 
-        if fields['endpoint'] in self._endpoint_formats:
-            endpoint_fmt = self._endpoint_formats[fields['endpoint']].get(fields['fd'])
+        if fields['endpoint'] in self._endpoint_styles:
+            endpoint_fmt = self._endpoint_styles[fields['endpoint']].get(fields['fd'])
             if default_fmt is None:
                 default_fmt = endpoint_fmt
         else:
@@ -309,7 +427,7 @@ class Formatter:
                     use_format = reset_fmt
                 elif data_to_format[ch_ix + 1] == self.FORMATTING_ENDPOINT:
                     use_format = endpoint_fmt
-                elif data_to_format[ch_ix + 1] == self.FORMATTING_FILTER:
+                elif data_to_format[ch_ix + 1] == self.FORMATTING_WATCH:
                     use_format = watch_fmt
                 elif data_to_format[ch_ix + 1] == self.FORMATTING_DEFAULT:
                     use_format = default_fmt
@@ -340,4 +458,7 @@ class Formatter:
         result += "\x1b[K\x1b[0m"
 
         return result
+
+    def format_line_new(self, fmt: Format, data):
+        pass
 
