@@ -4,14 +4,14 @@ server:
   stay-active: false
   
   startup:
-    - command: "echo \"STARTUP 1\"; sleep 2"
-    - command: "echo \"STARTUP 2\"; sleep 2"
-    - command: "echo \"STARTUP 3\"; sleep 2"
+    - command: "echo \"STARTUP 1\"; #sleep 2"
+    - command: "echo \"STARTUP 2\"; #sleep 2"
+    - command: "echo \"STARTUP 3\"; #sleep 2"
 
   shutdown:
-    - command: "echo \"SHUTDOWN 1\"; sleep 2"
-    - command: "echo \"SHUTDOWN 2\"; sleep 2"
-    - command: "echo \"SHUTDOWN 3\"; sleep 2"
+    - command: "echo \"SHUTDOWN 1\"; #sleep 2"
+    - command: "echo \"SHUTDOWN 2\"; #sleep 2"
+    - command: "echo \"SHUTDOWN 3\"; #sleep 2"
 
   endpoints:
     - type: "subprocess"
@@ -19,13 +19,24 @@ server:
       short-name: "sh"
       command: "./test1.sh"
 
-      commands:
-        test1:
-          command: "./test1.sh"
-          auto-run: false
-        test2:
-          command: "./test2.sh"
-          auto-run: false
+    #   commands:
+    #     test1:
+    #       command: "./test1.sh"
+    #       auto-run: false
+    #     test2:
+    #       command: "./test2.sh"
+    #       auto-run: false
+    #
+    #- type: "ssh"
+    #  address: 192.168.101.64
+    #  user: pi
+    #  options:
+    #    StrictHostKeyChecking: no
+    #  command: |
+    #    echo "command 1"
+    #    ls -al
+    #    echo "command 3"
+    #  name: "cmd"
 
 views:
   main:
@@ -49,13 +60,13 @@ views:
         enabled: true
 
 
-    line-format: "{format:filter}{watch-symbol}[{endpoint:8}] {seq:_6} {time}\u2503 {format:default}{data}"
+    line-format: "{format:watch}{watch-symbol}[{endpoint:8}] {seq:_6} {time}\u2503 {format:default}{data}"
     marker-format: "{format:endpoint}[ MARKER ] >>>>>> {time}\u2503 {name} <<<<<<"
     filtered: false
     max-held-lines: 5000
 
   filtered:
-    line-format: "{format:filter}{watch-symbol} {fd} {seq:6} {time}{format:reset} {data}"
+    line-format: "{format:watch}{watch-symbol} {fd} {seq:6} {time}{format:reset} {data}"
     filtered: true
     formats:
       - register: 'p'

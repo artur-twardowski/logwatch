@@ -130,7 +130,7 @@ def resolve_color(name: str):
             return -1
 
 
-class Format:
+class Style:
     DEFAULT_BG_COLOR = resolve_color("none")
     DEFAULT_FG_COLOR = resolve_color("white")
 
@@ -167,177 +167,326 @@ def ansi_format1(colors):
     return ansi_format(colors[0], colors[1])
 
 
-def subscript(s):
+def subscript(ch):
     REPLACEMENTS = {
         '0': '\u2080', '1': '\u2081', '2': '\u2082', '3': '\u2083',
         '4': '\u2084', '5': '\u2085', '6': '\u2086', '7': '\u2087',
         '8': '\u2088', '9': '\u2089', '(': '\u208d', ')': '\u208e'
     }
-    result = s
-
-    for char, replacement in REPLACEMENTS.items():
-        result = result.replace(char, replacement)
-    return result
+    return REPLACEMENTS.get(ch, ch)
 
 
-def superscript(s):
+def superscript(ch):
     REPLACEMENTS = {
         '0': '\u2070', '1': '\u00b9', '2': '\u00b2', '3': '\u00b3',
         '4': '\u2074', '5': '\u2075', '6': '\u2076', '7': '\u2077',
         '8': '\u2078', '9': '\u2079', '(': '\u207d', ')': '\u207e'
     }
-    result = s
-
-    for char, replacement in REPLACEMENTS.items():
-        result = result.replace(char, replacement)
-    return result
+    return REPLACEMENTS.get(ch, ch)
 
 
 def render_watch_register(r):
     return "\u257a%c\u2578" % r
 
+class TokenizationContext:
+    def __init__(self, compiled_result):
+        self._token = ""
+        self._compiled_result = compiled_result
+
+    def start_next(self, ch=''):
+        if self._token != "":
+            self._compiled_result.append(self._token)
+        self._token = ch
+
+    def append(self, ch):
+        self._token += ch
+
+
+class CompiledTag:
+    RESET_STYLE = 0
+    USE_ENDPOINT_STYLE = 1
+    USE_WATCH_STYLE = 2
+    USE_DEFAULT_STYLE = 3
+    PRINT_FIELD = 4
+
+    # transformations in context of PRINT_FIELD
+    TRANSFORM_UPPERCASE = 0x01
+    TRANSFORM_LOWERCASE = 0x02
+    TRANSFORM_SUPERSCRIPT = 0x04
+    TRANSFORM_SUBSCRIPT = 0x08
+
+    # transformation in context of XXX_STYLE
+    TRANSFORM_DISCARD_ANSI = 0x01
+
+    ALIGN_LEFT = 0
+    ALIGN_RIGHT = 1
+
+    def __init__(self, type):
+        self.type = type
+        self.field_name = None
+        self.field_transform = 0
+        self.field_width = None
+        self.field_align = self.ALIGN_RIGHT
+        self.field_pad = None
+
+class Format:
+    READING_LITERAL = 0
+    READING_TAG = 1
+
+    def __init__(self, format=None):
+        self._compiled_format = []
+        self._ctx = TokenizationContext(self._compiled_format)
+        if format is not None:
+            self.compile(format)
+
+    def get(self):
+        return self._compiled_format
+
+    def _compile_last_token(self):
+        token = "%s" % self._compiled_format[-1]
+        if token.startswith('format:'):
+            token_rest = token[7:]
+
+            KEYWORDS = {
+                "endpoint": CompiledTag.USE_ENDPOINT_STYLE,
+                "watch": CompiledTag.USE_WATCH_STYLE,
+                "default": CompiledTag.USE_DEFAULT_STYLE,
+                "reset": CompiledTag.RESET_STYLE
+            }
+
+            for keyword, flag in KEYWORDS.items():
+                if token_rest.startswith(keyword):
+                    self._compiled_format[-1] = CompiledTag(flag)
+                    token_rest = token_rest[len(keyword):]
+
+            if token_rest == ",plain":
+                self._compiled_format[-1].field_transform = CompiledTag.TRANSFORM_DISCARD_ANSI
+        else:
+            pos = token.find(':')
+            tag = CompiledTag(CompiledTag.PRINT_FIELD)
+            if pos == -1:
+                tag.field_name = token
+            else:
+                tag.field_name = token[0:pos]
+                while pos < len(token) and token[pos] in ['^', '_', '<', '>', 'A', 'a', '0', ':']:
+                    if token[pos] == '^':
+                        tag.field_transform |= CompiledTag.TRANSFORM_SUPERSCRIPT
+                    elif token[pos] == '_':
+                        tag.field_transform |= CompiledTag.TRANSFORM_SUBSCRIPT
+                    elif token[pos] == 'A':
+                        tag.field_transform |= CompiledTag.TRANSFORM_UPPERCASE
+                    elif token[pos] == 'a':
+                        tag.field_transform |= CompiledTag.TRANSFORM_LOWERCASE
+                    elif token[pos] == '<':
+                        tag.field_align = CompiledTag.ALIGN_LEFT
+                    elif token[pos] == '>':
+                        tag.field_align = CompiledTag.ALIGN_RIGHT
+                    elif token[pos] == '0':
+                        tag.field_pad = '0'
+                    pos += 1
+                if pos < len(token):
+                    tag.field_width = int(token[pos:])
+            self._compiled_format[-1] = tag
+
+    def compile(self, format: str):
+        self._compiled_format.clear()
+        state = self.READING_LITERAL
+
+        char_index = 0
+        while char_index < len(format):
+            ch = format[char_index]
+            if ch == '{':
+                if state == self.READING_LITERAL:
+                    state = self.READING_TAG
+                    self._ctx.start_next()
+                else:
+                    # TODO: emit an error
+                    continue
+            elif ch == '}':
+                if state == self.READING_TAG:
+                    state = self.READING_LITERAL
+                    self._ctx.start_next()
+                    self._compile_last_token()
+                else:
+                    self._ctx.append(ch)
+            else:
+                self._ctx.append(ch)
+
+            char_index += 1
+        self._ctx.start_next('')
+        print(self._compiled_format)
+
+
+class MutableString:
+    def __init__(self, content=""):
+        self._data = content
+
+    def append(self, content):
+        self._data += content
+
+    def get(self):
+        return self._data
+
+    def endswith(self, suffix):
+        return self._data.endswith(suffix)
+
+    def reset(self, content=""):
+        self._data = content
 
 class Formatter:
     FORMATTING_TAG_DELIM = "\x10"
     FORMATTING_RESET = "R"
     FORMATTING_ENDPOINT = "E"
-    FORMATTING_FILTER = "F"
+    FORMATTING_WATCH = "W"
     FORMATTING_DEFAULT = "D"
+    TAG_REGEX = r'(\{([A-Za-z0-9_-]+)(?::([^}]+))?\})'
 
     def __init__(self):
-        self._re_tag = re.compile(r'(\{([A-Za-z0-9_-]+)(?::([^}]+))?\})')
-        self._endpoint_formats = {}
-        self._filter_formats = {}
-        pass
+        self._re_tag = re.compile(self.TAG_REGEX)
+        self._endpoint_styles = {}
+        self._watch_styles = {}
 
-    def add_endpoint_format(self, name, format: Format):
+    def add_endpoint_style(self, name, style: Style):
         debug("Adding formatting for endpoint %s: background=%s, foreground=%s" % (
-            name, format.background_color, format.foreground_color))
-        self._endpoint_formats[name] = format
+            name, style.background_color, style.foreground_color))
+        self._endpoint_styles[name] = style
 
-    def add_filter_format(self, register, format: Format):
+    def add_watch_style(self, register, style: Style):
         debug("Adding formatting for filter %s: background=%s, foreground=%s" % (
-            register, format.background_color, format.foreground_color))
-        self._filter_formats[register] = format
+            register, style.background_color, style.foreground_color))
+        self._watch_styles[register] = style
 
-    def delete_watch_format(self, register):
-        if register in self._filter_formats:
-            del self._filter_formats[register]
+    def delete_watch_style(self, register):
+        if register in self._watch_styles:
+            del self._watch_styles[register]
 
     def get_filters(self):
-        return self._filter_formats
+        # TODO: Remove this function, holding watch information is not the responsibility
+        # of formatter.
+        return self._watch_styles
 
-    def format_line(self, fmt, fields):
-        tags = self._re_tag.findall(fmt)
-        result = fmt
-
-        # Replace tags with the values or delimiters
-        for needle, key, param in tags:
-            replacement = needle
-
-            if key == 'format':
-                if param == "reset":
-                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_RESET + "\x1b[0m"
-
-                elif param == "endpoint":
-                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_ENDPOINT + "\x1b[0m"
-
-                elif param == "filter":
-                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_FILTER + "\x1b[0m"
-
-                elif param =="default":
-                    replacement = self.FORMATTING_TAG_DELIM + self.FORMATTING_DEFAULT + "\x1b[0m"
-
-            elif key in fields:
-                try:
-                    view_value = str(fields[key])
-                    if len(param) > 0:
-                        if param[0] == '^':
-                            view_value = superscript(view_value)
-                            param = param[1:]
-                        elif param[0] == "_":
-                            view_value = subscript(view_value)
-                            param = param[1:]
-
-                        if param[0] >= '1' and param[0] <= '9':
-                            replacement = "%*s" % (int(param), view_value)
-                        elif param[0] == '<' and param[2] >= '1' and param[2] <= '9':
-                            replacement = pad_right(str(view_value),
-                                                    param[1],
-                                                    int(param[2:]))
-                        elif param[0] == '>' and param[2] >= '1' and param[2] <= '9':
-                            replacement = pad_left(str(view_value),
-                                                   param[1],
-                                                   int(param[2:]))
-                    else:
-                        replacement = view_value
-                except IndexError:
-                    error("Incorrect formatting parameter: %s" % param)
-                    exit(1)
-
-            result = result.replace(needle, replacement)
-
-        # Process the ANSI codes:
-        #   - replace all the formatting reset messages (ESC[0m) with appropriate formatting
-        #     as configured
-        reset_fmt = Format.DEFAULT_BG_COLOR, Format.DEFAULT_FG_COLOR
-
-        if 'watch' in fields and fields['watch'] in self._filter_formats:
-            watch_fmt = self._filter_formats[fields['watch']].get(fields['fd'])
-            default_fmt = watch_fmt
+    def _get_style(self, endpoint, watch, fd, fallback_style):
+        if watch in self._watch_styles:
+            return self._watch_styles[watch].get(fd)
+        elif endpoint in self._endpoint_styles:
+            return self._endpoint_styles[endpoint].get(fd)
         else:
-            watch_fmt = reset_fmt
-            default_fmt = None
+            return fallback_style
 
-        if fields['endpoint'] in self._endpoint_formats:
-            endpoint_fmt = self._endpoint_formats[fields['endpoint']].get(fields['fd'])
-            if default_fmt is None:
-                default_fmt = endpoint_fmt
-        else:
-            endpoint_fmt = reset_fmt
-            default_fmt = reset_fmt
+    def _transform_char(self, ch, rules: CompiledTag):
+        if (rules.field_transform & CompiledTag.TRANSFORM_UPPERCASE) != 0:
+            return ch.upper()
+        elif (rules.field_transform & CompiledTag.TRANSFORM_LOWERCASE) != 0:
+            return ch.lower()
 
+        if (rules.field_transform & CompiledTag.TRANSFORM_SUPERSCRIPT) != 0:
+            return superscript(ch)
+        elif (rules.field_transform & CompiledTag.TRANSFORM_SUBSCRIPT) != 0:
+            return subscript(ch)
 
-        use_format = reset_fmt
+        return ch
 
-        data_to_format = result
-        result = ""
-        ch_ix = 0
-        while ch_ix < len(data_to_format):
-            if data_to_format[ch_ix] == self.FORMATTING_TAG_DELIM:
-                if data_to_format[ch_ix + 1] == self.FORMATTING_RESET:
-                    use_format = reset_fmt
-                elif data_to_format[ch_ix + 1] == self.FORMATTING_ENDPOINT:
-                    use_format = endpoint_fmt
-                elif data_to_format[ch_ix + 1] == self.FORMATTING_FILTER:
-                    use_format = watch_fmt
-                elif data_to_format[ch_ix + 1] == self.FORMATTING_DEFAULT:
-                    use_format = default_fmt
-                ch_ix += 2
-                continue
+    def _append_transforming(self,
+                             result: MutableString,
+                             content: str,
+                             remove_formatting: bool,
+                             reset_style,
+                             rules: CompiledTag):
+        ansi_sequence = MutableString()
+        data_to_append = MutableString()
+        plaintext_length = 0
+        inside_ansi_sequence = False
 
-            elif data_to_format[ch_ix] == '\x1b':
-                if data_to_format[ch_ix + 1] == "[":  # Formatting tag
-                    tag_end = data_to_format.find('m', ch_ix + 2)
-                    values = data_to_format[ch_ix + 2:tag_end].split(';')
-                    new_values = []
-                    for v in values:
-                        if v == "0":
-                            new_values.append("0;" + ansi_format(use_format[0], use_format[1]))
-                        else:
-                            new_values.append(v)
-
-                    result += "\x1b[" + (";".join(new_values)) + "m"
-
-                    ch_ix = tag_end + 1
+        for ch in content:
+            do_reset_formatting = False
+            if ch == "\x1b":
+                inside_ansi_sequence = True
+                if not remove_formatting:
+                    data_to_append.append(ch)
                     continue
 
-            result += data_to_format[ch_ix]
-            ch_ix += 1
+            if inside_ansi_sequence:
+                ansi_sequence.append(ch)
+
+                if ch >= 'A' and ch <= 'z' and ch != '[':
+                    inside_ansi_sequence = False
+                    if ansi_sequence.endswith(";0m") or ansi_sequence.endswith("[0m"):
+                        do_reset_formatting = True
+                    ansi_sequence.reset()
+                if not remove_formatting:
+                    data_to_append.append(ch)
+            else:
+                data_to_append.append(self._transform_char(ch, rules))
+                plaintext_length += 1
+
+            if do_reset_formatting:
+                self._put_formatting_tag(data_to_append, reset_style)
+
+        field_width = rules.field_width or 0
+        padding_size = max(field_width - plaintext_length, 0)
+        padding_char = rules.field_pad or ' '
+
+        if rules.field_align == CompiledTag.ALIGN_RIGHT:
+            result.append(padding_char * padding_size)
+
+        result.append(data_to_append.get())
+
+        if rules.field_align == CompiledTag.ALIGN_LEFT:
+            result.append(" " * padding_size)
+
+    def _put_formatting_tag(self,
+                            result: MutableString,
+                            style: tuple):
+        result.append("\x1b[")
+        result.append("48;5;%d;38;5;%dm" % style)
+
+    def format_line(self, fmt: Format, data):
+        result = MutableString("\x1b[0m")
+        RESET_STYLE = Style.DEFAULT_BG_COLOR, Style.DEFAULT_FG_COLOR
+        active_style = RESET_STYLE
+        remove_formatting = False
+
+        for item in fmt.get():
+            if isinstance(item, str):
+                result.append(item)
+                continue
+
+            assert isinstance(item, CompiledTag)
+
+            if item.type == CompiledTag.PRINT_FIELD:
+                if item.field_name in data:
+                    self._append_transforming(result,
+                                              str(data.get(item.field_name, "[?]")),
+                                              remove_formatting,
+                                              active_style,
+                                              item)
+            else:
+                if item.type == CompiledTag.RESET_STYLE:
+                    active_style = RESET_STYLE
+                elif item.type == CompiledTag.USE_DEFAULT_STYLE:
+                    active_style = self._get_style(data.get('endpoint', None),
+                                                   data.get('watch', None),
+                                                   data.get('fd', 'default'),
+                                                   RESET_STYLE)
+                elif item.type == CompiledTag.USE_WATCH_STYLE:
+                    active_style = self._get_style(None,
+                                                   data.get('watch', None),
+                                                   data.get('fd', 'default'),
+                                                   RESET_STYLE)
+                elif item.type == CompiledTag.USE_ENDPOINT_STYLE:
+                    active_style = self._get_style(data.get('endpoint', None),
+                                                   None,
+                                                   data.get('fd', 'default'),
+                                                   RESET_STYLE)
+                remove_formatting = (item.field_transform == CompiledTag.TRANSFORM_DISCARD_ANSI)
+                self._put_formatting_tag(result, active_style)
 
         # Clear the line till the end, so that the entire line is filled
         # with the appropriate background color
-        result += "\x1b[K\x1b[0m"
+        result.append("\x1b[K\x1b[0m")
 
-        return result
+        return result.get()
+
+
+
 
