@@ -314,7 +314,6 @@ class Format:
 
             char_index += 1
         self._ctx.start_next('')
-        print(self._compiled_format)
 
 
 class MutableString:
