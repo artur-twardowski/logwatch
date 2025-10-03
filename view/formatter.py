@@ -351,12 +351,12 @@ class Formatter:
             name, style.background_color, style.foreground_color))
         self._endpoint_styles[name] = style
 
-    def add_watch_format(self, register, style: Style):
+    def add_watch_style(self, register, style: Style):
         debug("Adding formatting for filter %s: background=%s, foreground=%s" % (
             register, style.background_color, style.foreground_color))
         self._watch_styles[register] = style
 
-    def delete_watch_format(self, register):
+    def delete_watch_style(self, register):
         if register in self._watch_styles:
             del self._watch_styles[register]
 
@@ -456,7 +456,7 @@ class Formatter:
             if item.type == CompiledTag.PRINT_FIELD:
                 if item.field_name in data:
                     self._append_transforming(result,
-                                              data.get(item.field_name, "[?]"),
+                                              str(data.get(item.field_name, "[?]")),
                                               remove_formatting,
                                               active_style,
                                               item)

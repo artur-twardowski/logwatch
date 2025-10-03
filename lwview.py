@@ -495,20 +495,20 @@ def resume_callback(console_output):
     console_output.resume()
 
 
-def set_filter_callback(formatter: Formatter, config: Configuration, params: tuple):
+def set_watch_callback(formatter: Formatter, config: Configuration, params: tuple):
     register, regex, background, foreground = params
-    filter = Watch()
-    filter.set_regex(regex)
-    filter.enabled = True
-    filter.format.background_color = {"default": resolve_color(background)}
-    filter.format.foreground_color = {"default": resolve_color(foreground)}
+    watch = Watch()
+    watch.set_regex(regex)
+    watch.enabled = True
+    watch.format.background_color = {"default": resolve_color(background)}
+    watch.format.foreground_color = {"default": resolve_color(foreground)}
 
     if regex == "":
-        formatter.delete_watch_format(register)
+        formatter.delete_watch_style(register)
         config.delete_watch(register)
     else:
-        formatter.add_filter_format(register, filter.format)
-        config.add_watch(register, filter)
+        formatter.add_watch_style(register, watch.format)
+        config.add_watch(register, watch)
 
 
 def set_watch_enable(config: Configuration, register: str, enabled: bool):
@@ -540,15 +540,15 @@ if __name__ == "__main__":
     interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
     interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
     interact.on_resume(lambda: resume_callback(console_output))
-    interact.on_set_watch(lambda params: set_filter_callback(formatter, config, params))
+    interact.on_set_watch(lambda params: set_watch_callback(formatter, config, params))
     interact.on_enable_watch(lambda watch, enabled: set_watch_enable(config, watch, enabled))
     interact.on_quit(lambda: quit_callback())
 
-    for endpoint_name, endpoint_format in config.endpoint_formats.items():
-        formatter.add_endpoint_format(endpoint_name, endpoint_format)
+    for endpoint_name, endpoint_style in config.endpoint_styles.items():
+        formatter.add_endpoint_style(endpoint_name, endpoint_style)
 
-    for filter_name, filter in config.watches.items():
-        formatter.add_filter_format(filter_name, filter.format)
+    for watch_name, watch in config.watches.items():
+        formatter.add_watch_style(watch_name, watch.format)
 
     app_active = True
     client = TCPClient(config, console_output)

@@ -1,12 +1,12 @@
 from utils import info, error, lw_assert
-from view.formatter import Format, resolve_color
+from view.formatter import Style, resolve_color, Format
 import re
 import yaml
 
 class Watch:
     def __init__(self):
         self.regex = None
-        self.format = Format()
+        self.format = Style()
         self.enabled = True
         self._prepared_regex = None
 
@@ -30,14 +30,14 @@ class Configuration:
         self.websocket = None
         self.line_format = None
         self.marker_format = None
-        self.endpoint_formats = {}
+        self.endpoint_styles = {}
         self.watches = {}
         self.marker_format = None
         self.filtered_mode = False
         self.max_held_lines = None
 
-    def _parse_format_node(self, node):
-        fmt = Format()
+    def _parse_style_node(self, node):
+        style = Style()
         for fd, formats in node.items():
             if fd in ["endpoint"]:
                 continue
@@ -45,9 +45,9 @@ class Configuration:
             if not isinstance(formats, dict):
                 error("Invalid format of formatting node")
                 exit(1)
-            fmt.background_color[fd] = resolve_color(formats.get('background-color', "none"))
-            fmt.foreground_color[fd] = resolve_color(formats.get('foreground-color', "white"))
-        return fmt
+            style.background_color[fd] = resolve_color(formats.get('background-color', "none"))
+            style.foreground_color[fd] = resolve_color(formats.get('foreground-color', "white"))
+        return style
 
     def _parse_watch_node(self, node):
         watch = Watch()
@@ -98,14 +98,14 @@ class Configuration:
             self.socket = view_data.get('socket-port', None)
             self.websocket = view_data.get('websocket-port', None)
 
-            self.line_format = view_data.get('line-format', self.DEFAULT_LINE_FORMAT) 
-            self.marker_format = view_data.get('marker-format', self.DEFAULT_MARKER_FORMAT)
+            self.line_format = Format(view_data.get('line-format', self.DEFAULT_LINE_FORMAT))
+            self.marker_format = Format(view_data.get('marker-format', self.DEFAULT_MARKER_FORMAT))
             self.filtered_mode = view_data.get('filtered', False)
             self.max_held_lines = view_data.get('max-held-lines', None)
 
             for format in view_data.get('formats', []):
                 if 'endpoint' in format:
-                    self.endpoint_formats[format['endpoint']] = self._parse_format_node(format)
+                    self.endpoint_styles[format['endpoint']] = self._parse_style_node(format)
                 if 'regex' in format:
                     watch_register, watch_node = self._parse_watch_node(format)
                     self.add_watch(watch_register, watch_node)
