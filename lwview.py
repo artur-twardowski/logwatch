@@ -108,6 +108,14 @@ def set_watch_enable(config: Configuration, register: str, enabled: bool):
         config.watches[register].enabled = enabled
 
 
+def send_to_stdin(client: TCPClient, register, data):
+    client.send_enc({
+        'type': 'send-stdin',
+        'endpoint-register': register,
+        'data': data
+    })
+
+
 def quit_callback():
     raise KeyboardInterrupt
 
@@ -145,6 +153,8 @@ if __name__ == "__main__":
     app_active = True
     client = TCPClient(config, console_output)
     client.set_connection_loss_cb(lambda: disconnect_callback(console_output))
+
+    interact.on_send_stdin(lambda register, data: send_to_stdin(client, register, data))
 
     while app_active:
         try:

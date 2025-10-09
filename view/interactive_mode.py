@@ -41,8 +41,10 @@ class InteractiveModeContext:
             "r": "eval",         # r - resume
             "q": "eval",         # q - quit
             "w": "eval",         # w - set watch in first free register
+            "i": "eval",         # i - send data to stdin in to active endpoint
             "'": {},             # '... - operation on watch register
-            "\"": {}             # "... - operation on command register
+            "\"": {},            # "... - operation on command register
+            "&": {}              # &... - operation on endpoint register
         }
 
         for k in "0123456789":
@@ -55,6 +57,17 @@ class InteractiveModeContext:
                     "e": "eval",   # 'Re Enable the watch
                     "x": "eval"    # 'Rx Delete the watch
             }
+
+            self._syntax_tree["&"][k] = {
+                    "i": "eval",   # ;Ri Send data to stdin to indicated endpoint
+                    "\"": {}       # ;R"R Send data from indicated command register to indicated endpoint
+            }
+
+            for k2 in self.AVAILABLE_REGISTERS:
+                self._syntax_tree['&'][k]["\""][k2] = {
+                    "i": "eval",
+                    "r": "eval"
+                }
 
         self._syntax_tree_ptr = self._syntax_tree
 
@@ -108,6 +121,9 @@ class InteractiveModeContext:
     def on_enable_watch(self, callback: callable):
         self._set_watch_enable_cb = callback
 
+    def on_send_stdin(self, callback: callable):
+        self._send_stdin_cb = callback
+
     def _reset_command_buffer(self):
         self._command_buffer = ""
         self._text_input_buffer = ""
@@ -116,7 +132,7 @@ class InteractiveModeContext:
     def _enter_text_input(self, command, prompt, **kwargs):
         self._command_buffer = command
         self._input_mode = self.TEXT_INPUT_MODE
-        self._prompt = "Regular expression: "
+        self._prompt = prompt
         self._context = kwargs
 
     def _enter_predicate_mode(self, **kwargs):
@@ -180,6 +196,27 @@ class InteractiveModeContext:
             except Exception as ex:
                 self._enter_message_mode("Error: %s" % ex)
 
+    def _handle_send_stdin(self, endpoint_register):
+        if len(self._text_input_buffer) == 0:
+            self._enter_text_input(self._command_buffer, "Send: ", register=endpoint_register)
+        else:
+            self._send_stdin_cb(self._context['register'], self._text_input_buffer)
+            self._reset_command_buffer()
+            self._enter_predicate_mode()
+
+    def _command_matches(self, command, pattern):
+        if len(command) != len(pattern):
+            return False
+
+        for ix in range(0, len(command)):
+            if pattern[ix] == '\x01':
+                if command[ix] not in self.AVAILABLE_REGISTERS:
+                    return False
+            else:
+                if command[ix] != pattern[ix]:
+                    return False
+        return True
+
     def _handle_command(self):
         command = self._command_buffer
         command_params = self._text_input_buffer
@@ -192,7 +229,7 @@ class InteractiveModeContext:
         else:
             counter = 0
 
-        if command == "p":
+        if self._command_matches(command, "p"):
             self._pause_cb(False)
         elif command == "ap":
             self._pause_cb(True)
@@ -211,6 +248,11 @@ class InteractiveModeContext:
             self._set_watch_enable_cb(command[1], False)
         elif command[0] == "'" and command[2] == "e":
             self._set_watch_enable_cb(command[1], True)
+        elif self._command_matches(command, "i"):
+            self._handle_send_stdin('0')
+        elif self._command_matches(command, "&\x01i"):
+            self._handle_send_stdin(command[1])
+
         else:
             print("Unhandled command: %s, %s, %s" % (counter, command, command_params))
 
