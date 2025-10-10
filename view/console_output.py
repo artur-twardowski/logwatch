@@ -91,11 +91,11 @@ class ConsoleOutput:
         data['fd'] = 'marker'
         self._hold(data)
 
-    def print_message(self, msg):
+    def print_message(self, msg, fd="info"):
         self._hold({
             "data": msg,
-            "endpoint": '_',
-            "fd": "self"
+            "endpoint": '.',
+            "fd": fd
         })
 
     def pause(self):
@@ -150,6 +150,9 @@ class ConsoleOutput:
                 self._terminal.write("\u2b9e     ", flush=False)
 
             changed_register = self._interact.get_modified_watch()
+            default_endpoint = self._interact.get_default_endpoint()
+
+            self._terminal.write("&%c " % default_endpoint)
 
             for register, filter_data in self._formatter.get_filters().items():
                 if register == changed_register:

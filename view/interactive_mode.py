@@ -44,7 +44,9 @@ class InteractiveModeContext:
             "w": "eval",         # w - set watch in first free register
             "i": "eval",         # i - send data to stdin in to active endpoint
             "'": {},             # '... - operation on watch register
-            "\"": {},            # "... - operation on command register
+            "\"": {
+                "?": "eval"
+            },                   # "... - operation on command register
             "&": {}              # &... - operation on endpoint register
         }
 
@@ -84,6 +86,9 @@ class InteractiveModeContext:
             return self._context["register"]
         else:
             return None
+
+    def get_default_endpoint(self):
+        return self._default_endpoint
 
     def get_user_input_string(self):
         if self._input_mode == self.PREDICATE_MODE:
@@ -131,6 +136,9 @@ class InteractiveModeContext:
 
     def on_send_stdin(self, callback: callable):
         self._send_stdin_cb = callback
+
+    def on_print_info(self, callback: callable):
+        self._print = callback
 
     def _reset_command_buffer(self):
         self._command_buffer = ""
@@ -223,6 +231,9 @@ class InteractiveModeContext:
             self._reset_command_buffer()
             self._enter_predicate_mode()
 
+    def _print_command_registers(self):
+        for reg, command in self._config.commands.items():
+            self._print("info", "\"%c: %s" % (reg, command))
 
     def _command_matches(self, command, pattern):
         if len(command) != len(pattern):
@@ -277,6 +288,10 @@ class InteractiveModeContext:
         elif self._command_matches(command, "i"):
             self._handle_send_stdin(self._default_endpoint)
 
+        elif self._command_matches(command, "\"?"):
+            # "? - Print the information about all command registers
+            self._print_command_registers()
+
         elif self._command_matches(command, "\"\x01i"):
             # "Ri - Send the data from command register "R to the default endpoint. Edit the contents before sending
             if self._assert_registers_set(self._default_endpoint, command[1]):
@@ -311,7 +326,7 @@ class InteractiveModeContext:
             self._handle_send_stdin(command[1])
 
         else:
-            print("Unhandled command: %s, %s, %s" % (counter, command, command_params))
+            self._print("error", "Unhandled command: %s, %s, %s" % (counter, command, command_params))
 
     def _read_key_predicate_input(self, key):
         if key in self._syntax_tree_ptr:
