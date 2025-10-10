@@ -7,9 +7,9 @@ import os
 import signal
 
 class SubprocessCommunication:
-    def __init__(self, command_line, endpoint_name, servers):
+    def __init__(self, command_line, endpoint_register, servers):
         self._command_line = command_line
-        self._endpoint_name = endpoint_name
+        self._endpoint_register = endpoint_register
         self._stdin_buffer = Queue()
         self._servers = servers
         self._worker_thread = None
@@ -29,7 +29,7 @@ class SubprocessCommunication:
 
     def _worker(self):
         self._active = True
-        info("Endpoint %s: running command: %s" % (self._endpoint_name, self._command_line))
+        info("&%s: running command: %s" % (self._endpoint_register, self._command_line))
         proc = sp.Popen(self._command_line,
                         shell=True,
                         stdin=sp.PIPE,
@@ -38,7 +38,7 @@ class SubprocessCommunication:
                         universal_newlines=True)
 
         self._pid = proc.pid
-        info("Endpoint %s: PID %d" % (self._endpoint_name, self._pid))
+        info("&%s: PID %d" % (self._endpoint_register, self._pid))
 
         stdout_thread = thrd.Thread(target=self._receiver, args=(proc.stdout, 'stdout'))
         stderr_thread = thrd.Thread(target=self._receiver, args=(proc.stderr, 'stderr'))
@@ -53,7 +53,7 @@ class SubprocessCommunication:
         stderr_thread.join()
         stdin_thread.join()
 
-        info("Endpoint %s: command returned with exit code %d" % (self._endpoint_name, exitcode))
+        info("&%s: command returned with exit code %d" % (self._endpoint_register, exitcode))
         self._active = False
         self._pid = None
 
@@ -64,19 +64,21 @@ class SubprocessCommunication:
         if self._pid is not None:
             try:
                 os.killpg(os.getpgid(self._pid), signal.SIGTERM)
-                info("Endpoint %s: sent signal TERM" % self._endpoint_name)
+                info("&%s: sent signal TERM" % self._endpoint_register)
             except ProcessLookupError:
-                debug("Endpoint %s: process has already ended" % self._endpoint_name)
+                debug("&%s: process has already ended" % self._endpoint_register)
             except Exception as ex:
-                error("Endpoint %s: %s" % (self._endpoint_name, str(ex)))
+                error("&%s: %s" % (self._endpoint_register, str(ex)))
 
+    def send(self, data):
+        self._stdin_buffer.put(data)
 
     def is_active(self):
         return self._active
 
     def _receiver(self, stream, fd):
         for line in stream:
-            self._servers.broadcast_data(self._endpoint_name, fd, line.strip())
+            self._servers.broadcast_data(self._endpoint_register, fd, line.strip())
         info("Receiver thread finished for fd=%s" % fd)
 
     def _sender(self, proc, stream):
@@ -84,6 +86,7 @@ class SubprocessCommunication:
             if not self._stdin_buffer.empty():
                 line = self._stdin_buffer.get()
                 stream.write(line)
+                self._servers.broadcast_data(self._endpoint_register, 'stdin', line.strip())
                 stream.flush()
             else:
                 sleep(0.01)

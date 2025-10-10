@@ -185,8 +185,12 @@ def superscript(ch):
     return REPLACEMENTS.get(ch, ch)
 
 
-def render_watch_register(r):
-    return "\u257a%c\u2578" % r
+def repr_watch_register(r):
+    return "'%c" % r
+
+
+def repr_endpoint_register(r):
+    return "&%c" % r
 
 class TokenizationContext:
     def __init__(self, compiled_result):

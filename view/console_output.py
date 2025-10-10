@@ -1,5 +1,6 @@
 from view.configuration import Configuration
-from view.formatter import Formatter, render_watch_register, ansi_format1
+from view.formatter import Formatter, ansi_format1
+from view.formatter import repr_watch_register, repr_endpoint_register
 from view.interactive_mode import InteractiveModeContext
 from collections import deque
 from utils import info, warning
@@ -39,7 +40,7 @@ class ConsoleOutput:
 
         if matched_register is not None:
             data['watch'] = matched_register
-            data['watch-symbol'] = render_watch_register(matched_register)
+            data['watch-symbol'] = repr_watch_register(matched_register)
             data['matches'] = watch.matches
 
             # TODO: other condition should not be required
@@ -52,6 +53,7 @@ class ConsoleOutput:
             data['watch'] = ""
             data['watch-symbol'] = "   "
             data['matches'] = []
+            data['endpoint-symbol'] = repr_endpoint_register(data['endpoint'])
 
         if not self._config.filtered_mode or matched_register is not None:
             self._terminal.reset_current_line()
@@ -158,7 +160,7 @@ class ConsoleOutput:
                 else:
                     self._terminal.set_color_format("43;30")
 
-                self._terminal.write(render_watch_register(register))
+                self._terminal.write(repr_watch_register(register) + " ")
                 if register == changed_register:
                     self._terminal.set_color_format("25")
 

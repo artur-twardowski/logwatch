@@ -7,8 +7,7 @@ from time import sleep
 from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
 from utils import TerminalRawMode
-from view.formatter import Formatter, resolve_color, ansi_format1
-from view.formatter import render_watch_register
+from view.formatter import Formatter, resolve_color
 from view.configuration import Configuration, Watch
 from view.interactive_mode import InteractiveModeContext
 from view.console_output import ConsoleOutput
