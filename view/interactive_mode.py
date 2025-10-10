@@ -35,6 +35,7 @@ class InteractiveModeContext:
         self._buf_index = 0
         self._context = {}
         self._default_endpoint = '0'
+        self._next_keys_in_predicate_mode = ""
 
         self._syntax_tree = {
             "p": "eval",         # p  - pause
@@ -347,6 +348,19 @@ class InteractiveModeContext:
                     self._reset_command_buffer()
         else:
             self._reset_command_buffer()
+        self._build_predicate_mode_help()
+
+    def _build_predicate_mode_help(self):
+        result = ""
+        for k in sorted(self._syntax_tree_ptr.keys()):
+            result += k
+        self._next_keys_in_predicate_mode = result
+
+    def get_predicate_mode_help(self):
+        if self._input_mode == self.PREDICATE_MODE:
+            return self._next_keys_in_predicate_mode
+        else:
+            return ""
 
     def _on_backspace(self):
         if isinstance(self._text_input_buffer, list):

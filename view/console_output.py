@@ -137,7 +137,7 @@ class ConsoleOutput:
                      "stopped": "\u2500"}
 
         if self._status_line_req_update:
-            self._terminal.reset_current_line("43;30")
+            self._terminal.reset_current_line("48;5;61;30")
 
             self._terminal.write("%s " % STATE_MAP.get(self._server_state, '?'))
             if self._pause:
@@ -167,9 +167,11 @@ class ConsoleOutput:
                 if register == changed_register:
                     self._terminal.set_color_format("25")
 
-            self._terminal.set_color_format("43;30")
+            self._terminal.set_color_format("48;5;61;30")
             self._terminal.write(" ")
             self._terminal.write(self._interact.get_user_input_string())
+            self._terminal.set_color_format("38;5;20")
+            self._terminal.write(" " + self._interact.get_predicate_mode_help())
             self._status_line_req_update = False
 
     def notify_status_line_changed(self):
