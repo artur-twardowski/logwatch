@@ -156,6 +156,7 @@ if __name__ == "__main__":
         client.set_connection_loss_cb(lambda: disconnect_callback(console_output))
 
         interact.on_send_stdin(lambda register, data: send_to_stdin(client, register, data))
+        interact.on_set_marker(lambda: client.send_enc({"type": "set-marker"}))
 
         while app_active:
             try:

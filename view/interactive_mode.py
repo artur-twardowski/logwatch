@@ -43,6 +43,7 @@ class InteractiveModeContext:
             "q": "eval",         # q - quit
             "w": "eval",         # w - set watch in first free register
             "i": "eval",         # i - send data to stdin in to active endpoint
+            "m": "eval",
             "'": {},             # '... - operation on watch register
             "\"": {
                 "?": "eval"
@@ -139,6 +140,9 @@ class InteractiveModeContext:
 
     def on_print_info(self, callback: callable):
         self._print = callback
+
+    def on_set_marker(self, callback: callable):
+        self._set_marker_cb = callback
 
     def _reset_command_buffer(self):
         self._command_buffer = ""
@@ -274,6 +278,8 @@ class InteractiveModeContext:
             self._resume_cb()
         elif command == "q":
             self._quit_cb()
+        elif self._command_matches(command, "m"):
+            self._set_marker_cb()
         elif command == "w":
             register = self._find_first_available_watch()
             self._handle_set_watch(register)

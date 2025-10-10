@@ -212,7 +212,7 @@ class TCPServer(GenericTCPServer):
                     try:
                         data = json.loads(data_recv_str)
                         if data['type'] == 'set-marker':
-                            self._server_manager.broadcast_marker(data['name'])
+                            self._server_manager.broadcast_marker(data.get("name", ""))
                         elif data['type'] == 'get-late-join-records':
                             self._server_manager.send_late_join_records(self, addr)
                         elif data['type'] == 'send-stdin':
