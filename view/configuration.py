@@ -55,6 +55,7 @@ class Configuration:
         self.marker_format = None
         self.endpoint_styles = {}
         self.watches = {}
+        self.commands = {}
         self.marker_format = None
         self.filtered_mode = False
         self.max_held_lines = None
@@ -133,5 +134,12 @@ class Configuration:
                 if 'regex' in format:
                     watch_register, watch_node = self._parse_watch_node(format)
                     self.add_watch(watch_register, watch_node)
+
+            for command in view_data.get('commands', []):
+                lw_assert("register" in command, "Missing \"register\" field in definition of command")
+                lw_assert("command" in command, "Missing \"command\" field in definition of command")
+                self.commands[command['register']] = command['command']
+
+
 
 
