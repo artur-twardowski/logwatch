@@ -1,0 +1,2 @@
+SYSTEM_ENDPOINT = "*"
+SELF_ENDPOINT = "."
