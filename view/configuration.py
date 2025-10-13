@@ -59,6 +59,7 @@ class Configuration:
         self.marker_format = None
         self.filtered_mode = False
         self.max_held_lines = None
+        self.default_endpoint = '0'
 
     def _parse_style_node(self, node):
         style = Style()
@@ -127,6 +128,7 @@ class Configuration:
             self.marker_format = Format(view_data.get('marker-format', self.DEFAULT_MARKER_FORMAT))
             self.filtered_mode = view_data.get('filtered', False)
             self.max_held_lines = view_data.get('max-held-lines', None)
+            self.default_endpoint = view_data.get('default-endpoint', self.default_endpoint)
 
             for format in view_data.get('formats', []):
                 if 'endpoint' in format:

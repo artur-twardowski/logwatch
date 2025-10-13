@@ -34,7 +34,7 @@ class InteractiveModeContext:
         self._subprompts = []
         self._buf_index = 0
         self._context = {}
-        self._default_endpoint = '0'
+        self._default_endpoint = config.default_endpoint
         self._next_keys_in_predicate_mode = ""
 
         self._syntax_tree = {
