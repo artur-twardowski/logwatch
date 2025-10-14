@@ -131,19 +131,15 @@ def resolve_color(name: str):
 
 
 class Style:
-    DEFAULT_BG_COLOR = resolve_color("none")
-    DEFAULT_FG_COLOR = resolve_color("white")
+    DEFAULT_BG_COLOR = resolve_color('none')
+    DEFAULT_FG_COLOR = resolve_color('white')
 
     def __init__(self):
         self.background_color = {
             "default": self.DEFAULT_BG_COLOR,
-            "stderr": resolve_color("red1"),
-            "stdin": resolve_color("yellow1")
         }
         self.foreground_color = {
             "default": self.DEFAULT_FG_COLOR,
-            "stderr": self.DEFAULT_FG_COLOR,
-            "stdin": resolve_color("yellow7")
         }
 
     def get(self, fd="default"):
@@ -186,7 +182,10 @@ def superscript(ch):
 
 
 def repr_watch_register(r):
-    return "'%c" % r
+    if r is None:
+        return "  "
+    else:
+        return "'%c" % r
 
 
 def repr_endpoint_register(r):
@@ -342,10 +341,8 @@ class Formatter:
     FORMATTING_ENDPOINT = "E"
     FORMATTING_WATCH = "W"
     FORMATTING_DEFAULT = "D"
-    TAG_REGEX = r'(\{([A-Za-z0-9_-]+)(?::([^}]+))?\})'
 
     def __init__(self):
-        self._re_tag = re.compile(self.TAG_REGEX)
         self._endpoint_styles = {}
         self._watch_styles = {}
 
@@ -368,13 +365,20 @@ class Formatter:
         # of formatter.
         return self._watch_styles
 
+    def _overwrite_style(self, current_style, new_style):
+        result = list(current_style)
+        for x in [0, 1]:
+            if new_style[x] != -1:
+                result[x] = new_style[x]
+        return tuple(result)
+
     def _get_style(self, endpoint, watch, fd, fallback_style):
+        result = fallback_style
+        if endpoint in self._endpoint_styles:
+            result = self._overwrite_style(result, self._endpoint_styles[endpoint].get(fd))
         if watch in self._watch_styles:
-            return self._watch_styles[watch].get(fd)
-        elif endpoint in self._endpoint_styles:
-            return self._endpoint_styles[endpoint].get(fd)
-        else:
-            return fallback_style
+            result = self._overwrite_style(result, self._watch_styles[watch].get(fd))
+        return result
 
     def _transform_char(self, ch, rules: CompiledTag):
         if (rules.field_transform & CompiledTag.TRANSFORM_UPPERCASE) != 0:
@@ -441,7 +445,13 @@ class Formatter:
                             result: MutableString,
                             style: tuple):
         result.append("\x1b[")
-        result.append("48;5;%d;38;5;%dm" % style)
+        if style[0] != -1:
+            result.append("48;5;%d" % style[0])
+        if style[1] != -1:
+            if style[0] != -1:
+                result.append(";")
+            result.append("38;5;%d" % style[1])
+        result.append("m")
 
     def format_line(self, fmt: Format, data):
         result = MutableString("\x1b[0m")

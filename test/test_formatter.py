@@ -82,7 +82,7 @@ def formatter(request):
     format_watch.foreground_color = {'default': 4}
 
     formatter.add_endpoint_style("E1", format_e1)
-    formatter.add_watch_format('w', format_watch)
+    formatter.add_watch_style('w', format_watch)
 
     return formatter, request.param
 

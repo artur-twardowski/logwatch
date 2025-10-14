@@ -1,0 +1,93 @@
+server:
+  socket-port: 2207
+  stay-active: false
+
+  endpoints:
+    - type: "subprocess"
+      command: |
+        while true
+        do read d
+           echo "Endpoint 0 said \"$d\""
+           sleep 0.2
+        done
+      register: '0'
+
+    - type: "subprocess"
+      command: |
+        while true
+        do read d
+           echo "Endpoint 1 said \"$d\""
+           sleep 0.2
+        done
+      register: '1'
+
+    - type: "subprocess"
+      command: |
+        while true
+        do read d
+           echo "Endpoint 2 said \"$d\""
+           sleep 0.2
+        done
+      register: '2'
+
+    - type: "subprocess"
+      command: |
+        while true
+        do read d
+           echo "Endpoint 3 said \"$d\""
+           sleep 0.2
+        done
+      register: '3'
+
+views:
+  main:
+    show-endpoints: all
+    styles:
+      - endpoint: '0'
+        default:
+          foreground-color: red8
+        stdin:
+          foreground-color: red4
+      - endpoint: '1'
+        default:
+          foreground-color: green8
+        stdin:
+          foreground-color: green4
+      - endpoint: '2'
+        default:
+          foreground-color: yellow8
+        stdin:
+          foreground-color: yellow4
+      - endpoint: '3'
+        default:
+          foreground-color: cyan8
+        stdin:
+          foreground-color: cyan4
+      - endpoint: "*"
+        marker:  # Markers will have green background and light green text
+          background-color: green1
+          foreground-color: green7
+        default: # Other messages coming from server will have light blue background and black text
+          background-color: blue9
+          foreground-color: black
+        # Type a line containing "highlight" string to see the watch in action.
+        # Text color will remain unchanged, but the background color will be set to blue
+      - watch: 'a'
+        regex: "highlight"
+        background-color: blue1
+        foreground-color: none
+        enabled: true
+
+    line-format: "{format:default}{endpoint-symbol} {watch-symbol} {seq:_6} {time}\u2503 {format:default}{data}"
+    filtered: false
+    max-held-lines: 5000
+
+layouts:
+  tmux:
+    engine: tmux
+    run-server: true
+    layout: classic-horizontal
+    panels:
+      - view: main
+        size: 12
+

@@ -38,6 +38,8 @@ class ConsoleOutput:
                 matched_register = register
                 break
 
+        data['endpoint-symbol'] = repr_endpoint_register(data['endpoint'])
+
         if matched_register is not None:
             data['watch'] = matched_register
             data['watch-symbol'] = repr_watch_register(matched_register)
@@ -51,18 +53,13 @@ class ConsoleOutput:
                 data['data'] = repl
         else:
             data['watch'] = ""
-            data['watch-symbol'] = "   "
+            data['watch-symbol'] = repr_watch_register(None)
             data['matches'] = []
-            data['endpoint-symbol'] = repr_endpoint_register(data['endpoint'])
 
         if not self._config.filtered_mode or matched_register is not None:
             self._terminal.reset_current_line()
             self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
             self._status_line_req_update = True
-
-    def _print_marker(self, data):
-        self._terminal.write_line(self._formatter.format_line(self._config.marker_format, data))
-        self._status_line_req_update = True
 
     def _hold(self, data):
         drop_line = False
@@ -87,7 +84,8 @@ class ConsoleOutput:
 
     def print_marker(self, data):
         data['data'] = data['name']
-        data['endpoint'] = '_'
+        data['seq'] = '-'
+        data['endpoint'] = '*'
         data['fd'] = 'marker'
         self._hold(data)
 
@@ -115,20 +113,14 @@ class ConsoleOutput:
 
         while len(self._held_lines) > 0:
             data = self._held_lines.popleft()
-            if data['endpoint'] == '_' and data['fd'] == 'marker':
-                self._print_marker(data)
-            else:
-                self._print_line(data)
+            self._print_line(data)
 
     def feed(self, amount):
         for _ in range(0, amount):
             if len(self._held_lines) == 0:
                 break
             data = self._held_lines.popleft()
-            if data['endpoint'] == '_' and data['fd'] == 'marker':
-                self._print_marker(data)
-            else:
-                self._print_line(data)
+            self._print_line(data)
 
     def render_status_line(self):
         STATE_MAP = {"startup": "\u2197",

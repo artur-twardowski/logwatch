@@ -43,7 +43,6 @@ class Watch:
 
 class Configuration:
     DEFAULT_LINE_FORMAT = "{format:endpoint}{endpoint:8} {seq:6} {time} {data}"
-    DEFAULT_MARKER_FORMAT = "{format:endpoint}>>>>>>>> MARKER {time} {name}"
 
     def __init__(self):
         self.host = "127.0.0.1"
@@ -52,16 +51,14 @@ class Configuration:
         self.socket = None
         self.websocket = None
         self.line_format = None
-        self.marker_format = None
         self.endpoint_styles = {}
         self.watches = {}
         self.commands = {}
-        self.marker_format = None
         self.filtered_mode = False
         self.max_held_lines = None
         self.default_endpoint = '0'
 
-    def _parse_style_node(self, node):
+    def _parse_endpoint_style_node(self, node):
         style = Style()
         for fd, formats in node.items():
             if fd in ["endpoint"]:
@@ -74,19 +71,18 @@ class Configuration:
             style.foreground_color[fd] = resolve_color(formats.get('foreground-color', "white"))
         return style
 
-    def _parse_watch_node(self, node):
+    def _parse_watch_style_node(self, node):
         watch = Watch()
         lw_assert("regex" in node, "Missing \"regex\" field in definition of watch")
-        lw_assert("register" in node, "Missing \"register\" field in definition of watch")
-        lw_assert(len(node["register"]) == 1, "Watch register name must be a single character")
+        lw_assert("watch" in node, "Missing \"watch\" field in definition of watch")
+        lw_assert(len(node["watch"]) == 1, "Watch register name must be a single character")
 
         watch.set_regex(node['regex'])
         watch.compile_regex()
-        watch.name = node.get('name', watch.regex)
         watch.enabled = node.get('enabled', True)
         watch.format.background_color['default'] = resolve_color(node.get('background-color', 'none'))
         watch.format.foreground_color['default'] = resolve_color(node.get('foreground-color', 'white'))
-        return node["register"], watch
+        return node["watch"], watch
 
     def add_watch(self, register, watch):
         self.watches[register] = watch
@@ -125,16 +121,15 @@ class Configuration:
             self.websocket = view_data.get('websocket-port', None)
 
             self.line_format = Format(view_data.get('line-format', self.DEFAULT_LINE_FORMAT))
-            self.marker_format = Format(view_data.get('marker-format', self.DEFAULT_MARKER_FORMAT))
             self.filtered_mode = view_data.get('filtered', False)
             self.max_held_lines = view_data.get('max-held-lines', None)
             self.default_endpoint = view_data.get('default-endpoint', self.default_endpoint)
 
-            for format in view_data.get('formats', []):
-                if 'endpoint' in format:
-                    self.endpoint_styles[format['endpoint']] = self._parse_style_node(format)
-                if 'regex' in format:
-                    watch_register, watch_node = self._parse_watch_node(format)
+            for style in view_data.get('styles', []):
+                if 'endpoint' in style:
+                    self.endpoint_styles[style['endpoint']] = self._parse_endpoint_style_node(style)
+                if 'watch' in style:
+                    watch_register, watch_node = self._parse_watch_style_node(style)
                     self.add_watch(watch_register, watch_node)
 
             for command in view_data.get('commands', []):

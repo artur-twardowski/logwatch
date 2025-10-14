@@ -42,7 +42,7 @@ class Configuration:
 
             for endpoint in data['server'].get('endpoints', []):
                 lw_assert("type" in endpoint, "Endpoint type must be provided")
-                lw_assert("name" in endpoint, "Endpoint name must be provided")
+                lw_assert("register" in endpoint, "Endpoint register must be provided")
 
                 if endpoint['type'] == 'subprocess':
                     lw_assert("command" in endpoint, "Subprocess endpoint must have a command specified")
