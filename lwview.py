@@ -7,8 +7,7 @@ from time import sleep
 from queue import Queue
 from utils import pop_args, info, error, warning, set_log_level, VERSION
 from utils import TerminalRawMode
-from view.formatter import Formatter, resolve_color, ansi_format1
-from view.formatter import render_watch_register
+from view.formatter import Formatter, resolve_color
 from view.configuration import Configuration, Watch
 from view.interactive_mode import InteractiveModeContext
 from view.console_output import ConsoleOutput
@@ -108,6 +107,14 @@ def set_watch_enable(config: Configuration, register: str, enabled: bool):
         config.watches[register].enabled = enabled
 
 
+def send_to_stdin(client: TCPClient, register, data):
+    client.send_enc({
+        'type': 'send-stdin',
+        'endpoint-register': register,
+        'data': data
+    })
+
+
 def quit_callback():
     raise KeyboardInterrupt
 
@@ -122,44 +129,54 @@ if __name__ == "__main__":
     set_log_level(config.log_level)
 
     term = TerminalRawMode()
-    interact = InteractiveModeContext(config)
-    term.enter_raw_mode()
+    try:
+        interact = InteractiveModeContext(config)
+        term.enter_raw_mode()
 
-    formatter = Formatter()
-    console_output = ConsoleOutput(config, formatter, term, interact)
-    console_output.set_max_held_lines(config.max_held_lines)
+        formatter = Formatter()
+        console_output = ConsoleOutput(config, formatter, term, interact)
+        console_output.set_max_held_lines(config.max_held_lines)
 
-    interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
-    interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
-    interact.on_resume(lambda: resume_callback(console_output))
-    interact.on_set_watch(lambda register, params: set_watch_callback(formatter, config, register, params))
-    interact.on_enable_watch(lambda watch, enabled: set_watch_enable(config, watch, enabled))
-    interact.on_quit(lambda: quit_callback())
+        interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
+        interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
+        interact.on_resume(lambda: resume_callback(console_output))
+        interact.on_set_watch(lambda register, params: set_watch_callback(formatter, config, register, params))
+        interact.on_enable_watch(lambda watch, enabled: set_watch_enable(config, watch, enabled))
+        interact.on_quit(lambda: quit_callback())
+        interact.on_print_info(lambda fd, content: console_output.print_message(content, fd))
 
-    for endpoint_name, endpoint_style in config.endpoint_styles.items():
-        formatter.add_endpoint_style(endpoint_name, endpoint_style)
+        for endpoint_name, endpoint_style in config.endpoint_styles.items():
+            formatter.add_endpoint_style(endpoint_name, endpoint_style)
 
-    for watch_name, watch in config.watches.items():
-        formatter.add_watch_style(watch_name, watch.format)
+        for watch_name, watch in config.watches.items():
+            formatter.add_watch_style(watch_name, watch.format)
 
-    app_active = True
-    client = TCPClient(config, console_output)
-    client.set_connection_loss_cb(lambda: disconnect_callback(console_output))
+        app_active = True
+        client = TCPClient(config, console_output)
+        client.set_connection_loss_cb(lambda: disconnect_callback(console_output))
 
-    while app_active:
-        try:
-            if not client.is_active():
-                try:
-                    client.run()
-                    client.send_enc({'type': 'get-late-join-records'})
-                except ConnectionRefusedError:
-                    sleep(0.1)
+        interact.on_send_stdin(lambda register, data: send_to_stdin(client, register, data))
+        interact.on_set_marker(lambda: client.send_enc({"type": "set-marker"}))
 
-            console_output.write_pending_lines()
-            console_output.render_status_line()
-            interact.read_key(term)
-        except KeyboardInterrupt:
-            app_active = False
+        while app_active:
+            try:
+                if not client.is_active():
+                    try:
+                        client.run()
+                        client.send_enc({'type': 'get-late-join-records'})
+                    except ConnectionRefusedError:
+                        sleep(0.1)
 
-    client.stop()
-    term.exit_raw_mode()
+                console_output.write_pending_lines()
+                console_output.render_status_line()
+                interact.read_key(term)
+            except KeyboardInterrupt:
+                app_active = False
+
+        client.stop()
+    except Exception as ex:
+        term.exit_raw_mode()
+        print("")
+        client.stop()
+        raise
+

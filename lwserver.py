@@ -7,6 +7,7 @@ from time import sleep
 from network.servers import GenericTCPServer
 from utils import pop_args, error, info, debug, set_log_level, inc_log_level, VERSION
 from utils import parse_yes_no_option, warning
+from common import SYSTEM_ENDPOINT
 from server.configuration import Configuration
 from server.subprocess import SubprocessCommunication
 from server.ssh_session import SSHSessionCommunication
@@ -31,7 +32,7 @@ class StartupShutdownState:
     def _execute_action(self, action):
         if "command" in action:
             self._subprocess = SubprocessCommunication(action["command"],
-                                                       "system",
+                                                       SYSTEM_ENDPOINT,
                                                        self._server_manager)
             self._subprocess.set_command_finished_callback(
                 lambda: self._on_subprocess_finished())
@@ -68,7 +69,7 @@ class ActiveState:
         self._active_subprocesses = 0
 
     def _run_subprocesses(self):
-        for subproc in self._subprocesses:
+        for _, subproc in self._subprocesses.items():
             subproc.set_command_finished_callback(
                 lambda: self._state_machine.transition("active", "command-finished"))
             subproc.run()
@@ -161,8 +162,8 @@ def read_args(args):
         arg = arg_queue.get()
 
         if arg in ['-p', '--process']:
-            endpoint_name, command_line = pop_args(arg_queue, arg, "endpoint-name", "command")
-            config.subprocesses.append((endpoint_name, command_line))
+            endpoint_register, command_line = pop_args(arg_queue, arg, "endpoint-register", "command")
+            config.subprocesses.append((endpoint_register, command_line))
         elif arg in ['-P', '--port']:
             port, = pop_args(arg_queue, arg, "port")
             config.socket_port = int(port)
@@ -196,10 +197,11 @@ def read_args(args):
 
 
 class TCPServer(GenericTCPServer):
-    def __init__(self, addr, port, server_manager: ServiceManager):
+    def __init__(self, addr, port, server_manager: ServiceManager, endpoints: dict):
         super().__init__(address=addr, port=port)
         self._server_manager = server_manager
         self._recv_buffer = bytearray()
+        self._endpoints = endpoints
 
     def on_data_received(self, addr, recv_data):
         for byte in recv_data:
@@ -210,9 +212,14 @@ class TCPServer(GenericTCPServer):
                     try:
                         data = json.loads(data_recv_str)
                         if data['type'] == 'set-marker':
-                            self._server_manager.broadcast_marker(data['name'])
+                            self._server_manager.broadcast_marker(data.get("name", ""))
                         elif data['type'] == 'get-late-join-records':
                             self._server_manager.send_late_join_records(self, addr)
+                        elif data['type'] == 'send-stdin':
+                            endpoint = self._endpoints.get(data['endpoint-register'])
+                            if endpoint is not None:
+                                endpoint.send(data['data'] + "\n")
+
 
                     except json.decoder.JSONDecodeError as err:
                         error("Failed to parse JSON: %s: %s" % (err, data_recv_str))
@@ -233,22 +240,23 @@ if __name__ == "__main__":
     server_manager = ServiceManager()
     server_manager.set_late_join_buf_size(config.late_join_buf_size)
 
+    endpoints = {}
     if config.socket_port is not None:
-        server_manager.register(TCPServer(config.socket_addr, config.socket_port, server_manager))
+        server_manager.register(TCPServer(addr=config.socket_addr,
+                                          port=config.socket_port,
+                                          server_manager=server_manager,
+                                          endpoints=endpoints))
 
     if not server_manager.run_all():
         error("Failed to start the server")
         exit(1)
 
-    subprocesses = []
-    for endpoint_name, command in config.subprocesses:
-        subproc = SubprocessCommunication(command, endpoint_name, server_manager)
-        subprocesses.append(subproc)
-    for endpoint_name, ssh_session in config.ssh_sessions:
-        subprocesses.append(
-            SSHSessionCommunication(ssh_session, endpoint_name, server_manager))
+    for endpoint_register, command in config.subprocesses:
+        endpoints[endpoint_register] = SubprocessCommunication(command, endpoint_register, server_manager)
+    for endpoint_register, ssh_session in config.ssh_sessions:
+        endpoints[endpoint_register] = SSHSessionCommunication(ssh_session, endpoint_register, server_manager)
 
-    state_machine = StateMachine(config, subprocesses, server_manager)
+    state_machine = StateMachine(config, endpoints, server_manager)
     state_machine.start()
 
     for sig in [signal.SIGINT, signal.SIGTERM]:

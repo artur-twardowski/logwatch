@@ -1,5 +1,6 @@
 from view.configuration import Configuration
-from view.formatter import Formatter, render_watch_register, ansi_format1
+from view.formatter import Formatter, ansi_format1
+from view.formatter import repr_watch_register, repr_endpoint_register
 from view.interactive_mode import InteractiveModeContext
 from collections import deque
 from utils import info, warning
@@ -39,7 +40,7 @@ class ConsoleOutput:
 
         if matched_register is not None:
             data['watch'] = matched_register
-            data['watch-symbol'] = render_watch_register(matched_register)
+            data['watch-symbol'] = repr_watch_register(matched_register)
             data['matches'] = watch.matches
 
             # TODO: other condition should not be required
@@ -52,6 +53,7 @@ class ConsoleOutput:
             data['watch'] = ""
             data['watch-symbol'] = "   "
             data['matches'] = []
+            data['endpoint-symbol'] = repr_endpoint_register(data['endpoint'])
 
         if not self._config.filtered_mode or matched_register is not None:
             self._terminal.reset_current_line()
@@ -89,11 +91,11 @@ class ConsoleOutput:
         data['fd'] = 'marker'
         self._hold(data)
 
-    def print_message(self, msg):
+    def print_message(self, msg, fd="info"):
         self._hold({
             "data": msg,
-            "endpoint": '_',
-            "fd": "self"
+            "endpoint": '.',
+            "fd": fd
         })
 
     def pause(self):
@@ -135,7 +137,7 @@ class ConsoleOutput:
                      "stopped": "\u2500"}
 
         if self._status_line_req_update:
-            self._terminal.reset_current_line("43;30")
+            self._terminal.reset_current_line("48;5;61;30")
 
             self._terminal.write("%s " % STATE_MAP.get(self._server_state, '?'))
             if self._pause:
@@ -148,6 +150,9 @@ class ConsoleOutput:
                 self._terminal.write("\u2b9e     ", flush=False)
 
             changed_register = self._interact.get_modified_watch()
+            default_endpoint = self._interact.get_default_endpoint()
+
+            self._terminal.write("&%c " % default_endpoint)
 
             for register, filter_data in self._formatter.get_filters().items():
                 if register == changed_register:
@@ -158,13 +163,15 @@ class ConsoleOutput:
                 else:
                     self._terminal.set_color_format("43;30")
 
-                self._terminal.write(render_watch_register(register))
+                self._terminal.write(repr_watch_register(register) + " ")
                 if register == changed_register:
                     self._terminal.set_color_format("25")
 
-            self._terminal.set_color_format("43;30")
+            self._terminal.set_color_format("48;5;61;30")
             self._terminal.write(" ")
             self._terminal.write(self._interact.get_user_input_string())
+            self._terminal.set_color_format("38;5;20")
+            self._terminal.write(" " + self._interact.get_predicate_mode_help())
             self._status_line_req_update = False
 
     def notify_status_line_changed(self):

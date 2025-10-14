@@ -48,7 +48,7 @@ class Configuration:
                     lw_assert("command" in endpoint, "Subprocess endpoint must have a command specified")
                     command = endpoint['command'].strip().replace('\n', ';')
 
-                    self.subprocesses.append((endpoint['name'], command))
+                    self.subprocesses.append((endpoint['register'], command))
                 elif endpoint['type'] == 'ssh':
                     lw_assert("address" in endpoint, "SSH endpoint must have the host address specified")
                     lw_assert("user" in endpoint, "SSH endpoint must have the user name specified")
@@ -56,7 +56,7 @@ class Configuration:
 
                     command = endpoint['command'].strip().replace('\n', ';')
 
-                    self.ssh_sessions.append((endpoint['name'], SSHSessionConfig(
+                    self.ssh_sessions.append((endpoint['register'], SSHSessionConfig(
                         host=endpoint['address'],
                         port=endpoint.get('port', None),
                         user=endpoint['user'],
