@@ -1,7 +1,11 @@
 from view.configuration import Configuration
-from view.formatter import ansi_format1, get_default_register_format
+from view.formatter import ansi_format, get_default_register_format
 from utils import TerminalRawMode
 
+SYM_ARROW_UP="\u2191"
+SYM_ARROW_DOWN="\u2193"
+SYM_ARROW_UP_DOWN="\u2195"
+SYM_PREDICATE_MODE_PROMPT="\u21e8"
 
 class MultiModeSubprompt:
     def __init__(self, subprompt, current_value, fmt=None, value_on_empty=""):
@@ -94,7 +98,7 @@ class InteractiveModeContext:
 
     def get_user_input_string(self):
         if self._input_mode == self.PREDICATE_MODE:
-            return "\u21c9 " + self._command_buffer
+            return SYM_PREDICATE_MODE_PROMPT + self._command_buffer
         elif self._input_mode == self.TEXT_INPUT_MODE:
             return self._prompt + self._text_input_buffer
         elif self._input_mode == self.MULTI_INPUT_MODE:
@@ -102,17 +106,19 @@ class InteractiveModeContext:
             arrow = " "
             if count > 2:
                 if self._buf_index == 0:
-                    arrow = "\u2193" # Down arrow
+                    arrow = SYM_ARROW_DOWN
                 elif self._buf_index == count - 1:
-                    arrow = "\u2191" # Up arrow
+                    arrow = SYM_ARROW_UP
                 else:
-                    arrow = "\u2195" # Up/down arrow
+                    arrow = SYM_ARROW_UP_DOWN
 
             disp_value = self._text_input_buffer[self._buf_index]
             if disp_value == "":
-                disp_value = "\x1b[%sm%s" % (
-                    ansi_format1((3, 245)),
-                    self._values_on_empty[self._buf_index])
+                placeholder = self._values_on_empty[self._buf_index]
+                disp_value = "\x1b[%sm%s\x1b[%dD" % (
+                    ansi_format(self._config.colors.empty_placeholder_bg,
+                                self._config.colors.empty_placeholder_fg),
+                    placeholder, len(placeholder))
 
             return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._buf_index], disp_value)
         elif self._input_mode == self.MESSAGE_MODE:
@@ -348,7 +354,6 @@ class InteractiveModeContext:
                     self._reset_command_buffer()
         else:
             self._reset_command_buffer()
-        self._build_predicate_mode_help()
 
     def _build_predicate_mode_help(self):
         result = ""
@@ -357,6 +362,7 @@ class InteractiveModeContext:
         self._next_keys_in_predicate_mode = result
 
     def get_predicate_mode_help(self):
+        self._build_predicate_mode_help()
         if self._input_mode == self.PREDICATE_MODE:
             return self._next_keys_in_predicate_mode
         else:

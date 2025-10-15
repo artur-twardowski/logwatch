@@ -170,7 +170,7 @@ class TerminalRawMode:
         stdout.write("%s\r\n" % line)
         stdout.flush()
 
-    def set_color_format(self, format):
+    def set_format(self, format):
         stdout.write("\x1b[%sm" % format)
 
     def reset_current_line(self, format="0"):

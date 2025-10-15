@@ -41,6 +41,17 @@ class Watch:
         else:
             return False
 
+class ColorsConfiguration:
+    def __init__(self):
+        self.status_line_bg = resolve_color("x100")
+        self.status_line_fg = resolve_color("x554")
+
+        self.pred_help_bg = -1
+        self.pred_help_fg = resolve_color("x211")
+
+        self.empty_placeholder_bg = -1
+        self.empty_placeholder_fg = resolve_color("x322")
+
 class Configuration:
     DEFAULT_LINE_FORMAT = "{format:endpoint}{endpoint:8} {seq:6} {time} {data}"
 
@@ -57,6 +68,7 @@ class Configuration:
         self.filtered_mode = False
         self.max_held_lines = None
         self.default_endpoint = '0'
+        self.colors = ColorsConfiguration()
 
     def _parse_endpoint_style_node(self, node):
         style = Style()

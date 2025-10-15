@@ -123,6 +123,11 @@ def pad_right(string, char, size):
 def resolve_color(name: str):
     if name in COLOR_MAP:
         return COLOR_MAP[name]
+    elif len(name) == 4 and name[0] == 'x':
+        CODE0 = ord('0')
+        return 16 + 36 * (ord(name[1]) - CODE0) +\
+                     6 * (ord(name[2]) - CODE0) +\
+                         (ord(name[3]) - CODE0)
     else:
         try:
             return int(name)
@@ -151,10 +156,14 @@ class Style:
 
 
 def ansi_format(bg_color, fg_color):
-    if bg_color == -1:
-        return "0;38;5;%d" % fg_color
-    else:
-        return "48;5;%d;38;5;%d" % (bg_color, fg_color)
+    result = ""
+    if bg_color != -1:
+        result += "48;5;%d" % bg_color
+    if fg_color != -1:
+        if bg_color != -1:
+            result += ";"
+        result += "38;5;%d" % fg_color
+    return result
 
 
 def ansi_format1(colors):

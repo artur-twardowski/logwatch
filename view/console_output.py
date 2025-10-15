@@ -1,11 +1,14 @@
 from view.configuration import Configuration
-from view.formatter import Formatter, ansi_format1
+from view.formatter import Formatter, ansi_format, ansi_format1
 from view.formatter import repr_watch_register, repr_endpoint_register
 from view.interactive_mode import InteractiveModeContext
 from collections import deque
 from utils import info, warning
 from utils import TerminalRawMode
+import common
 
+
+SYM_VERTICAL_THICK_BAR="\u2503"
 
 class ConsoleOutput:
     def __init__(self, config: Configuration, formatter: Formatter, term: TerminalRawMode, interactive: InteractiveModeContext):
@@ -85,14 +88,14 @@ class ConsoleOutput:
     def print_marker(self, data):
         data['data'] = data['name']
         data['seq'] = '-'
-        data['endpoint'] = '*'
+        data['endpoint'] = common.SYSTEM_ENDPOINT
         data['fd'] = 'marker'
         self._hold(data)
 
     def print_message(self, msg, fd="info"):
         self._hold({
             "data": msg,
-            "endpoint": '.',
+            "endpoint": common.SELF_ENDPOINT,
             "fd": fd
         })
 
@@ -127,19 +130,23 @@ class ConsoleOutput:
                      "active": "\u2506",
                      "shutdown": "\u2198",
                      "stopped": "\u2500"}
+        colors = self._config.colors
+
+        status_line_style = ansi_format(colors.status_line_bg, colors.status_line_fg)
 
         if self._status_line_req_update:
-            self._terminal.reset_current_line("48;5;61;30")
+            self._terminal.reset_current_line(status_line_style)
 
             self._terminal.write("%s " % STATE_MAP.get(self._server_state, '?'))
             if self._pause:
-                if self._drop_newest_lines:
-                    self._terminal.write("\u2507\u2507", flush=False)
-                else:
-                    self._terminal.write("\u2503\u2503", flush=False) # Pause character
-                self._terminal.write("%3d%%" % (len(self._held_lines) * 100 / self._max_held_lines))
+                self._terminal.write("PAU ")
+                #if self._drop_newest_lines:
+                #    self._terminal.write("\u2507\u2507", flush=False)
+                #else:
+                #    self._terminal.write("\u2503\u2503", flush=False) # Pause character
+                #self._terminal.write("%3d%%" % (len(self._held_lines) * 100 / self._max_held_lines))
             else:
-                self._terminal.write("\u2b9e     ", flush=False)
+                self._terminal.write("RUN ", flush=False)
 
             changed_register = self._interact.get_modified_watch()
             default_endpoint = self._interact.get_default_endpoint()
@@ -148,22 +155,26 @@ class ConsoleOutput:
 
             for register, filter_data in self._formatter.get_filters().items():
                 if register == changed_register:
-                    self._terminal.set_color_format("5")
+                    self._terminal.set_format("5")
 
                 if self._config.watches[register].enabled:
-                    self._terminal.set_color_format(ansi_format1(filter_data.get()))
+                    self._terminal.set_format(ansi_format1(filter_data.get()))
                 else:
-                    self._terminal.set_color_format("43;30")
+                    self._terminal.set_format(status_line_style)
 
                 self._terminal.write(repr_watch_register(register) + " ")
                 if register == changed_register:
-                    self._terminal.set_color_format("25")
+                    self._terminal.set_format("25")
 
-            self._terminal.set_color_format("48;5;61;30")
+            self._terminal.set_format(status_line_style)
             self._terminal.write(" ")
             self._terminal.write(self._interact.get_user_input_string())
-            self._terminal.set_color_format("38;5;20")
-            self._terminal.write(" " + self._interact.get_predicate_mode_help())
+            predicate_mode_help = self._interact.get_predicate_mode_help()
+            if predicate_mode_help != "":
+                self._terminal.write("  " + SYM_VERTICAL_THICK_BAR)
+                self._terminal.set_format(
+                    ansi_format(colors.pred_help_bg, colors.pred_help_fg))
+                self._terminal.write(predicate_mode_help + "\x1b[%dD" % (len(predicate_mode_help) + 3))
             self._status_line_req_update = False
 
     def notify_status_line_changed(self):
