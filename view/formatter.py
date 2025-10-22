@@ -476,12 +476,15 @@ class Formatter:
             assert isinstance(item, CompiledTag)
 
             if item.type == CompiledTag.PRINT_FIELD:
-                if item.field_name in data:
-                    self._append_transforming(result,
-                                              str(data.get(item.field_name, "[?]")),
-                                              remove_formatting,
-                                              active_style,
-                                              item)
+                if item.field_name == "pad":
+                    content = ""
+                else:
+                    content = str(data.get(item.field_name, "[?]"))
+                self._append_transforming(result,
+                                          content,
+                                          remove_formatting,
+                                          active_style,
+                                          item)
             else:
                 if item.type == CompiledTag.RESET_STYLE:
                     active_style = RESET_STYLE

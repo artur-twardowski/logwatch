@@ -11,6 +11,7 @@ from view.formatter import Formatter, resolve_color
 from view.configuration import Configuration, Watch
 from view.interactive_mode import InteractiveModeContext
 from view.console_output import ConsoleOutput
+import signal
 
 
 class TCPClient(GenericTCPClient):
@@ -118,7 +119,6 @@ def send_to_stdin(client: TCPClient, register, data):
 def quit_callback():
     raise KeyboardInterrupt
 
-
 def disconnect_callback(console_output):
     console_output.print_message("Disconnected from server")
 
@@ -157,6 +157,8 @@ if __name__ == "__main__":
 
         interact.on_send_stdin(lambda register, data: send_to_stdin(client, register, data))
         interact.on_set_marker(lambda: client.send_enc({"type": "set-marker"}))
+
+        signal.signal(signal.SIGWINCH, lambda s, f: term.notify_resized())
 
         while app_active:
             try:

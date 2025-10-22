@@ -7,15 +7,15 @@ import os
 import signal
 
 class SubprocessCommunication:
-    def __init__(self, command_line, endpoint_register, servers):
+    def __init__(self, command_line, endpoint_register, on_data_emit_cb: callable):
         self._command_line = command_line
         self._endpoint_register = endpoint_register
         self._stdin_buffer = Queue()
-        self._servers = servers
         self._worker_thread = None
         self._active = False
         self._on_command_finished = None
         self._pid = None
+        self._on_data_emit_cb = on_data_emit_cb
 
     def run(self):
         self._worker_thread = thrd.Thread(target=self._worker)
@@ -78,7 +78,7 @@ class SubprocessCommunication:
 
     def _receiver(self, stream, fd):
         for line in stream:
-            self._servers.broadcast_data(self._endpoint_register, fd, line.strip())
+            self._on_data_emit_cb(self._endpoint_register, fd, line)
         info("Receiver thread finished for fd=%s" % fd)
 
     def _sender(self, proc, stream):
@@ -86,7 +86,7 @@ class SubprocessCommunication:
             if not self._stdin_buffer.empty():
                 line = self._stdin_buffer.get()
                 stream.write(line)
-                self._servers.broadcast_data(self._endpoint_register, 'stdin', line.strip())
+                self._on_data_emit_cb(self._endpoint_register, 'stdin', line)
                 stream.flush()
             else:
                 sleep(0.01)

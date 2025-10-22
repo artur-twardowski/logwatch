@@ -1,0 +1,60 @@
+server:
+  socket-port: 2207
+  stay-active: false
+
+  endpoints:
+    - type: "subprocess"
+      command: |
+        X=0
+        while true
+        do echo "Data structure $X {"
+           echo "    \"date\": `date`,"
+           echo "    \"index\": $X }"
+           X=$(($X + 1))
+           sleep 0.3
+        done
+      register: '0'
+      event-separation:
+        method: 'by-brackets'
+        trim: true
+
+views:
+  main:
+    show-endpoints: all
+    styles:
+      - endpoint: '0'
+        stdout: # Data printed on stdout will have white text
+          foreground-color: white
+        stderr: # Data printed on stderr will have light red text
+          foreground-color: red7
+        stdin:  # Data sent over to stdin will have grey text
+          foreground-color: grey11
+      - endpoint: "*"
+        marker:  # Markers will have green background and light green text
+          background-color: green1
+          foreground-color: green7
+        default: # Other messages coming from server will have light blue background and black text
+          background-color: blue9
+          foreground-color: black
+        # Type a line containing "highlight" string to see the watch in action.
+        # Text color will remain unchanged, but the background color will be set to blue
+      - watch: 'a'
+        regex: "highlight"
+        background-color: blue1
+        foreground-color: none
+        enabled: true
+
+    line-format: "{format:default}{endpoint-symbol} {watch-symbol} {seq:_6} {time:8}\u2503 {format:default}{data}"
+    continued-line-format: "{format:endpoint}{endpoint-symbol} {watch-symbol} {pad:6} {pad:8}\u2503 {format:default}{data}"
+    filtered: false
+    max-held-lines: 5000
+
+layouts:
+  tmux:
+    engine: tmux
+    run-server: true
+    layout: classic-horizontal
+    panels:
+      - view: main
+        size: 12
+

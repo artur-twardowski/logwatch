@@ -60,9 +60,15 @@ class ConsoleOutput:
             data['matches'] = []
 
         if not self._config.filtered_mode or matched_register is not None:
-            self._terminal.reset_current_line()
-            self._terminal.write_line(self._formatter.format_line(self._config.line_format, data))
-            self._status_line_req_update = True
+            first_row = True
+            for content in data['data'].split('\n'):
+                data_row = data
+                data_row['data'] = content
+                self._terminal.reset_current_line()
+                use_format = self._config.line_format if first_row else self._config.continued_line_format
+                self._terminal.write_line(self._formatter.format_line(use_format, data_row))
+                self._status_line_req_update = True
+                first_row = False
 
     def _hold(self, data):
         drop_line = False

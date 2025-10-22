@@ -62,6 +62,7 @@ class Configuration:
         self.socket = None
         self.websocket = None
         self.line_format = None
+        self.continued_line_format = None
         self.endpoint_styles = {}
         self.watches = {}
         self.commands = {}
@@ -133,6 +134,10 @@ class Configuration:
             self.websocket = view_data.get('websocket-port', None)
 
             self.line_format = Format(view_data.get('line-format', self.DEFAULT_LINE_FORMAT))
+            if "continued-line-format" in view_data:
+                self.continued_line_format = Format(view_data['continued-line-format'])
+            else:
+                self.continued_line_format = self.line_format
             self.filtered_mode = view_data.get('filtered', False)
             self.max_held_lines = view_data.get('max-held-lines', None)
             self.default_endpoint = view_data.get('default-endpoint', self.default_endpoint)

@@ -12,6 +12,7 @@ from server.configuration import Configuration
 from server.subprocess import SubprocessCommunication
 from server.ssh_session import SSHSessionCommunication
 from server.service_manager import ServiceManager
+from server.separators import create_separator
 
 class StartupShutdownState:
     def __init__(self, state_machine, actions, server_manager, next_state, state_after_stopped):
@@ -233,6 +234,7 @@ def _on_signal(sig, frame, state_machine: StateMachine):
     warning("Received signal %s" % signal.Signals(sig).name)
     state_machine.transition(None, "stop")
 
+
 if __name__ == "__main__":
     set_log_level(1)
     print("*** LOGWATCH v%s: lwserver" % VERSION)
@@ -241,6 +243,12 @@ if __name__ == "__main__":
     server_manager.set_late_join_buf_size(config.late_join_buf_size)
 
     endpoints = {}
+    separators = {}
+
+    for endpoint, rule_name in config.event_separation_rules.items():
+        separators[endpoint] = create_separator(rule_name, lambda fd, data: server_manager.broadcast_data(endpoint, fd, data))
+
+
     if config.socket_port is not None:
         server_manager.register(TCPServer(addr=config.socket_addr,
                                           port=config.socket_port,
@@ -252,9 +260,11 @@ if __name__ == "__main__":
         exit(1)
 
     for endpoint_register, command in config.subprocesses:
-        endpoints[endpoint_register] = SubprocessCommunication(command, endpoint_register, server_manager)
+        endpoints[endpoint_register] = SubprocessCommunication(command, endpoint_register,
+                                                               lambda e, f, d: separators[e].feed(f, d))
     for endpoint_register, ssh_session in config.ssh_sessions:
-        endpoints[endpoint_register] = SSHSessionCommunication(ssh_session, endpoint_register, server_manager)
+        endpoints[endpoint_register] = SSHSessionCommunication(ssh_session, endpoint_register,
+                                                               lambda e, f, d: separators[e].feed(f, d))
 
     state_machine = StateMachine(config, endpoints, server_manager)
     state_machine.start()

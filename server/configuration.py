@@ -13,6 +13,7 @@ class Configuration:
         self.startup_actions = []
         self.shutdown_actions = []
         self.subprocesses = []
+        self.event_separation_rules = {}
         self.ssh_sessions = []
         self.socket_addr = None
         self.socket_port = None
@@ -63,4 +64,5 @@ class Configuration:
                         command=command,
                         options=endpoint.get('options', {}))
                     ))
+                self.event_separation_rules[endpoint['register']] = endpoint.get('event-separation', {'method': 'by-newline'})
 

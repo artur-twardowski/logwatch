@@ -160,6 +160,9 @@ class TerminalRawMode:
 
         return self._translation.get(result, result)
 
+    def notify_resized(self):
+        self.write("\x1b[999;999f\x1b[6n")
+
 
     def write(self, line, flush=True):
         stdout.write("%s" % line)
