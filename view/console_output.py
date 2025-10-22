@@ -146,13 +146,10 @@ class ConsoleOutput:
             self._terminal.write("%s " % STATE_MAP.get(self._server_state, '?'))
             if self._pause:
                 self._terminal.write("PAU ")
-                #if self._drop_newest_lines:
-                #    self._terminal.write("\u2507\u2507", flush=False)
-                #else:
-                #    self._terminal.write("\u2503\u2503", flush=False) # Pause character
-                #self._terminal.write("%3d%%" % (len(self._held_lines) * 100 / self._max_held_lines))
             else:
                 self._terminal.write("RUN ", flush=False)
+            if self._config.filtered_mode:
+                self._terminal.write("FLT ", flush=False)
 
             changed_register = self._interact.get_modified_watch()
             default_endpoint = self._interact.get_default_endpoint()

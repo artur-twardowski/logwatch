@@ -42,14 +42,15 @@ class InteractiveModeContext:
         self._next_keys_in_predicate_mode = ""
 
         self._syntax_tree = {
-            "p": "eval",         # p  - pause
             "a": {"p": "eval"},  # ap - analysis pause
-            "r": "eval",         # r - resume
-            "q": "eval",         # q - quit
-            "w": "eval",         # w - set watch in first free register
+            "F": "eval",         # F - toggle filtered mode
             "i": "eval",         # i - send data to stdin in to active endpoint
             "I": "eval",
             "m": "eval",
+            "p": "eval",         # p  - pause
+            "q": "eval",         # q - quit
+            "r": "eval",         # r - resume
+            "w": "eval",         # w - set watch in first free register
             "'": {},             # '... - operation on watch register
             "\"": {
                 "?": "eval"
@@ -315,6 +316,8 @@ class InteractiveModeContext:
         elif self._command_matches_any(command, "i", "I"):
             self._handle_send_stdin(self._default_endpoint,
                                     stay_in_input_mode=command[0] == 'I')
+        elif self._command_matches_any(command, "F"):
+            self._config.filtered_mode = not self._config.filtered_mode
 
         elif self._command_matches(command, "\"?"):
             # "? - Print the information about all command registers
