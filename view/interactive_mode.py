@@ -48,6 +48,7 @@ class InteractiveModeContext:
             "q": "eval",         # q - quit
             "w": "eval",         # w - set watch in first free register
             "i": "eval",         # i - send data to stdin in to active endpoint
+            "I": "eval",
             "m": "eval",
             "'": {},             # '... - operation on watch register
             "\"": {
@@ -69,6 +70,7 @@ class InteractiveModeContext:
 
             self._syntax_tree["\""][k] = {
                     "i": "eval",
+                    "I": "eval",
                     "r": "eval",
                     "s": "eval"
             }
@@ -76,12 +78,14 @@ class InteractiveModeContext:
             self._syntax_tree["&"][k] = {
                     "d": "eval",
                     "i": "eval",   # ;Ri Send data to stdin to indicated endpoint
+                    "I": "eval",
                     "\"": {}       # ;R"R Send data from indicated command register to indicated endpoint
             }
 
             for k2 in self.AVAILABLE_REGISTERS:
                 self._syntax_tree['&'][k]["\""][k2] = {
                     "i": "eval",
+                    "I": "eval",
                     "r": "eval"
                 }
 
@@ -224,13 +228,17 @@ class InteractiveModeContext:
             except Exception as ex:
                 self._enter_message_mode("Error: %s" % ex)
 
-    def _handle_send_stdin(self, endpoint_register, initial_content = ""):
+    def _handle_send_stdin(self, endpoint_register, initial_content = "", stay_in_input_mode=False):
         if len(self._text_input_buffer) == 0:
-            self._enter_text_input(self._command_buffer, "Send: ", initial_content, register=endpoint_register)
+            self._enter_text_input(self._command_buffer, "Send: ", initial_content, register=endpoint_register, stay_in_input_mode=stay_in_input_mode)
         else:
             self._send_stdin_cb(self._context['register'], self._text_input_buffer)
-            self._reset_command_buffer()
-            self._enter_predicate_mode()
+
+            if self._context['stay_in_input_mode']:
+                self._text_input_buffer = initial_content
+            else:
+                self._reset_command_buffer()
+                self._enter_predicate_mode()
 
     def _handle_set_command_register(self, command_register):
         if len(self._text_input_buffer) == 0:
@@ -258,6 +266,12 @@ class InteractiveModeContext:
                 if command[ix] != pattern[ix]:
                     return False
         return True
+
+    def _command_matches_any(self, command, *patterns):
+        for pattern in patterns:
+            if self._command_matches(command, pattern):
+                return True
+        return False
 
     def _assert_registers_set(self, endpoint_register=None, command_register=None):
         if command_register not in self._config.commands:
@@ -298,22 +312,29 @@ class InteractiveModeContext:
             self._set_watch_enable_cb(command[1], False)
         elif command[0] == "'" and command[2] == "e":
             self._set_watch_enable_cb(command[1], True)
-        elif self._command_matches(command, "i"):
-            self._handle_send_stdin(self._default_endpoint)
+        elif self._command_matches_any(command, "i", "I"):
+            self._handle_send_stdin(self._default_endpoint,
+                                    stay_in_input_mode=command[0] == 'I')
 
         elif self._command_matches(command, "\"?"):
             # "? - Print the information about all command registers
             self._print_command_registers()
 
-        elif self._command_matches(command, "\"\x01i"):
+        elif self._command_matches_any(command, "\"\x01i", "\"\x01I"):
             # "Ri - Send the data from command register "R to the default endpoint. Edit the contents before sending
             if self._assert_registers_set(self._default_endpoint, command[1]):
-                self._handle_send_stdin(self._default_endpoint, self._config.commands.get(command[1]))
+                self._handle_send_stdin(
+                    self._default_endpoint,
+                    initial_content=self._config.commands.get(command[1]),
+                    stay_in_input_mode=(command[2] == 'I'))
 
-        elif self._command_matches(command, "&\x01\"\x01i"):
+        elif self._command_matches_any(command, "&\x01\"\x01i", "&\x01\"\x01I"):
             # &R"Ri - Send the data from command register "R to the endpoint &R. Edit the contents before sending
             if self._assert_registers_set(command[1], command[3]):
-                self._handle_send_stdin(command[1], self._config.commands.get(command[3]))
+                self._handle_send_stdin(
+                    command[1],
+                    initial_content=self._config.commands.get(command[3]),
+                    stay_in_input_mode=(command[4] == 'I'))
 
         elif self._command_matches(command, "\"\x01r"):
             # "Rr - Send the data from command register "R to the default endpoint.
@@ -334,9 +355,10 @@ class InteractiveModeContext:
             self._default_endpoint = command[1]
             self._enter_message_mode("Changed default endpoint to &%c" % self._default_endpoint)
 
-        elif self._command_matches(command, "&\x01i"):
+        elif self._command_matches_any(command, "&\x01i", "&\x01I"):
             # &Ri - Send data to endpoint &R.
-            self._handle_send_stdin(command[1])
+            self._handle_send_stdin(command[1],
+                                    stay_in_input_mode=(command[2] == 'I'))
 
         else:
             self._print("error", "Unhandled command: %s, %s, %s" % (counter, command, command_params))
