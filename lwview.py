@@ -177,8 +177,9 @@ if __name__ == "__main__":
 
         client.stop()
     except Exception as ex:
+        raise
+    finally:
         term.exit_raw_mode()
         print("")
         client.stop()
-        raise
 
