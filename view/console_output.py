@@ -113,9 +113,6 @@ class ConsoleOutput:
         self._held_lines_overflow = False
         self.write_pending_lines()
 
-    def notify_server_state(self, state):
-        self._server_state = state
-
     def write_pending_lines(self):
         if self._pause:
             return
@@ -132,10 +129,6 @@ class ConsoleOutput:
             self._print_line(data)
 
     def render_status_line(self):
-        STATE_MAP = {"startup": "\u2197",
-                     "active": "\u2506",
-                     "shutdown": "\u2198",
-                     "stopped": "\u2500"}
         colors = self._config.colors
 
         status_line_style = ansi_format(colors.status_line_bg, colors.status_line_fg)
@@ -143,7 +136,6 @@ class ConsoleOutput:
         if self._status_line_req_update:
             self._terminal.reset_current_line(status_line_style)
 
-            self._terminal.write("%s " % STATE_MAP.get(self._server_state, '?'))
             if self._pause:
                 self._terminal.write("PAU ")
             else:

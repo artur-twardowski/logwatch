@@ -34,7 +34,7 @@ class TCPClient(GenericTCPClient):
                         elif data['type'] == 'marker':
                             self._cout.print_marker(data)
                         elif data['type'] == 'keepalive':
-                            self._cout.notify_server_state(data['state'])
+                            pass
 
                     except json.decoder.JSONDecodeError as err:
                         warning("Failed to parse JSON: %s: %s" % (err, data_recv_str))

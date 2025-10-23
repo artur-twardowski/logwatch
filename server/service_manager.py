@@ -53,12 +53,13 @@ class ServiceManager:
         for server in self._servers:
             server.stop()
 
-    def broadcast_data(self, endpoint_name, fd, data):
+    def broadcast_data(self, endpoint_name, action_name, fd, data):
         today = datetime.now()
         for server in self._servers:
             record = {
                 "type": "data",
                 "endpoint": endpoint_name,
+                "source": action_name,
                 "fd": fd,
                 "data": data,
                 "seq": self._line_seq_no,
@@ -69,10 +70,10 @@ class ServiceManager:
             self.add_to_late_join_buf(record)
         self._line_seq_no += 1
 
-    def broadcast_keepalive(self, seq_no, current_state, extra_info: dict = {}):
+    def broadcast_keepalive(self, seq_no, **extra_info):
         for server in self._servers:
             data = {
-                **{"type": "keepalive", "seq": seq_no, "state": current_state},
+                **{"type": "keepalive", "seq": seq_no},
                 **extra_info}
             server.broadcast(json.dumps(data))
 

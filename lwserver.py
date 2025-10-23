@@ -6,62 +6,14 @@ import signal
 from time import sleep
 from network.servers import GenericTCPServer
 from utils import pop_args, error, info, debug, set_log_level, inc_log_level, VERSION
-from utils import parse_yes_no_option, warning
+from utils import parse_yes_no_option, warning, lw_assert
 from common import SYSTEM_ENDPOINT
-from server.configuration import Configuration
+from server.configuration import Configuration, ActionConfiguration, SubprocessConfig, SSHSessionConfig
 from server.subprocess import SubprocessCommunication
 from server.ssh_session import SSHSessionCommunication
 from server.service_manager import ServiceManager
 from server.separators import create_separator
-
-class StartupShutdownState:
-    def __init__(self, state_machine, actions, server_manager, next_state, state_after_stopped):
-        self._state_machine = state_machine
-        self._actions = actions
-        self._action_ix = 0
-        self._server_manager = server_manager
-        self._next_state = next_state
-        self._state_after_stopped = state_after_stopped
-        self._subprocess = None
-        self._stopping = False
-
-    def _on_subprocess_finished(self):
-        if not self._stopping:
-            self._state_machine.transition(None, "next")
-        self._subprocess = None
-
-    def _execute_action(self, action):
-        if "command" in action:
-            self._subprocess = SubprocessCommunication(action["command"],
-                                                       SYSTEM_ENDPOINT,
-                                                       lambda e, f, d: self._server_manager.broadcast_data(e, f, d))
-            self._subprocess.set_command_finished_callback(
-                lambda: self._on_subprocess_finished())
-            self._subprocess.run()
-
-    def on_event(self, event_name):
-        if event_name == "begin":
-            self._stopping = False
-            if len(self._actions) > 0:
-                self._action_ix = 0
-                self._execute_action(self._actions[self._action_ix])
-            else:
-                self._state_machine.transition(self._next_state, "begin")
-
-        elif event_name == "next":
-            self._action_ix += 1
-            if self._action_ix >= len(self._actions):
-                self._state_machine.transition(self._next_state, "begin")
-            else:
-                self._execute_action(self._actions[self._action_ix])
-        
-        elif event_name == "stop":
-            print("Stopping -- to %s" % self._state_after_stopped)
-            self._stopping = True
-            if self._subprocess is not None:
-                self._subprocess.stop()
-            self._state_machine.transition(self._state_after_stopped, "begin")
-
+from server.separators.by_newline import ByNewlineSeparator
 
 class ActiveState:
     def __init__(self, state_machine, subprocesses: list):
@@ -88,69 +40,6 @@ class ActiveState:
         elif event_name == "stop":
             for subproc in self._subprocesses:
                 subproc.stop()
-
-class StoppedState:
-    def __init__(self, state_machine):
-        self._state_machine = state_machine
-
-    def on_event(self, event_name):
-        if event_name == "begin":
-            self._state_machine.stop()
-
-class StateMachine:
-    def __init__(self, config: Configuration, subprocesses: list, server_manager):
-        self._config = config
-
-        self._states = {
-            "startup": StartupShutdownState(
-                state_machine=self,
-                actions=config.startup_actions,
-                server_manager=server_manager,
-                next_state="active",
-                state_after_stopped="shutdown"),
-            "active": ActiveState(
-                state_machine=self,
-                subprocesses=subprocesses),
-            "shutdown": StartupShutdownState(
-                state_machine=self,
-                actions=config.shutdown_actions,
-                server_manager=server_manager,
-                next_state="stopped",
-                state_after_stopped="stopped"),
-            "stopped": StoppedState(self)
-        }
-
-        self._state = None
-        self._state_name = ""
-        self._event = None
-        self._active = False
-
-    def start(self):
-        self._state_name = "startup"
-        self._state = self._states[self._state_name]
-        self._event = "begin"
-        self._active = True
-
-    def stop(self):
-        self._active = False
-
-    def get_state_name(self):
-        return self._state_name
-
-    def transition(self, state, event):
-        msg = "[%s]%s" % (self._state_name, "\u2500" * 4)
-        if state is not None:
-            self._state = self._states[state]
-            self._state_name = state
-        msg += "%s%s>[%s]" % (event, "\u2500" * 4, self._state_name)
-        self._event = event
-        debug(msg)
-
-    def execute(self):
-        current_event = self._event
-        self._event = None
-        self._state.on_event(current_event)
-        return self._active
 
 
 def read_args(args):
@@ -230,9 +119,91 @@ class TCPServer(GenericTCPServer):
                 self._recv_buffer.append(byte)
 
 
-def _on_signal(sig, frame, state_machine: StateMachine):
-    warning("Received signal %s" % signal.Signals(sig).name)
-    state_machine.transition(None, "stop")
+class ActionManager:
+    STATE_AWAITING = 0
+    STATE_RUNNING = 1
+    STATE_FINISHED = 2
+
+    def __init__(self, separators: dict, default_separator_cb: callable):
+        self._actions = {}
+        self._action_states = {}
+        self._action_states_to_publish = {}
+        self._preconditions = {}
+        self._separators = separators
+        self._default_separator_cb = default_separator_cb
+
+        self.STATE_NAMES = {
+            self.STATE_AWAITING: "awaiting",
+            self.STATE_RUNNING: "running",
+            self.STATE_FINISHED: "finished"
+        }
+
+    def _on_data(self, action, fd, data):
+        self._separators[action].feed(fd, data)
+
+    def register(self, name, config, preconditions = []):
+        if isinstance(config, SubprocessConfig):
+            action = SubprocessCommunication(config.command, name, lambda a, f, d: self._on_data(a, f, d))
+        elif isinstance(config, SSHSessionConfig):
+            action = SSHSessionCommunication(config, name, lambda a, f, d: self._on_data(a, f, d))
+        else:
+            raise RuntimeError("Cannot register an action described as %s" % str(config))
+
+        lw_assert(name not in self._actions,
+                  "Action name \"%s\" used multiple times" % name)
+
+        info("Registered action %s (preconditions: %s): %s" % (name, preconditions, action))
+
+        self._actions[name] = action
+        self._action_states[name] = self.STATE_AWAITING
+        self._preconditions[name] = preconditions
+
+        if name not in self._separators:
+            self._separators[name] = ByNewlineSeparator({"trim": True}, lambda f, d, a=name: self._default_separator_cb(a, f, d))
+
+    def get(self, action_name):
+        return self._actions[action_name]
+
+    def _can_be_run(self, action_name):
+        if self._action_states[action_name] != self.STATE_AWAITING:
+            return False
+
+        result = True
+        for dep_name, dep_requirement in self._preconditions[action_name].items():
+            if dep_requirement == ActionConfiguration.AWAIT_COMPLETION:
+                result = result and (self._action_states[dep_name] == self.STATE_FINISHED)
+        return result
+
+    def _notify_finished(self, action_name):
+        self._action_states[action_name] = self.STATE_FINISHED
+
+    def execute(self, print_debug_line=False):
+        for action_name, action in self._actions.items():
+            if self._can_be_run(action_name):
+                action = self._actions[action_name]
+                action.set_command_finished_callback(lambda a=action_name: self._notify_finished(a))
+                self._action_states[action_name] = self.STATE_RUNNING
+                action.run()
+
+        finished_actions = 0
+        debug_line = "Actions summary:"
+        for action_name, state in self._action_states.items():
+            state_s = self.STATE_NAMES.get(state)
+            self._action_states_to_publish[action_name] = state_s
+            debug_line += " %s:%s" % (action_name, state_s)
+            if state == self.STATE_FINISHED:
+                finished_actions += 1
+        debug_line += " finished_actions=%d/%d" % (finished_actions, len(self._action_states))
+        if print_debug_line:
+            debug(debug_line)
+        return finished_actions < len(self._action_states)
+
+    def get_action_states(self):
+        return self._action_states_to_publish
+
+
+def _on_signal(sig, frame):
+    raise KeyboardInterrupt
 
 
 if __name__ == "__main__":
@@ -242,51 +213,54 @@ if __name__ == "__main__":
     server_manager = ServiceManager()
     server_manager.set_late_join_buf_size(config.late_join_buf_size)
 
-    endpoints = {}
+    endpoint_registers = {}
+    actions_to_endpoints = {}
     separators = {}
 
-    for endpoint, rule_name in config.event_separation_rules.items():
-        separators[endpoint] = create_separator(rule_name, lambda fd, data, e=endpoint: server_manager.broadcast_data(e, fd, data))
-
+    for action_name, rule_name in config.event_separation_rules.items():
+        separators[action_name] = create_separator(rule_name, lambda fd, data, a=action_name:
+            server_manager.broadcast_data(actions_to_endpoints.get(a, '-'), a, fd, data))
 
     if config.socket_port is not None:
         server_manager.register(TCPServer(addr=config.socket_addr,
                                           port=config.socket_port,
                                           server_manager=server_manager,
-                                          endpoints=endpoints))
+                                          endpoints=endpoint_registers))
 
     if not server_manager.run_all():
         error("Failed to start the server")
         exit(1)
 
-    for endpoint_register, command in config.subprocesses:
-        endpoints[endpoint_register] = SubprocessCommunication(command, endpoint_register,
-                                                               lambda e, f, d: separators[e].feed(f, d))
-    for endpoint_register, ssh_session in config.ssh_sessions:
-        endpoints[endpoint_register] = SSHSessionCommunication(ssh_session, endpoint_register,
-                                                               lambda e, f, d: separators[e].feed(f, d))
+    action_manager = ActionManager(
+        separators=separators,
+        default_separator_cb=lambda action, fd, data:
+            server_manager.broadcast_data(actions_to_endpoints.get(action, '-'), action, fd, data))
 
-    state_machine = StateMachine(config, endpoints, server_manager)
-    state_machine.start()
+    for action_name, action_config in config.actions.items():
+        action_manager.register(action_name, action_config.data, action_config.preconditions)
+
+    for endpoint_register, action_name in config.endpoint_registers.items():
+        endpoint_registers[endpoint_register] = action_manager.get(action_name)
+        actions_to_endpoints[action_name] = endpoint_register
 
     for sig in [signal.SIGINT, signal.SIGTERM]:
-        signal.signal(sig, lambda s, f: _on_signal(s, f, state_machine))
+        signal.signal(sig, lambda s, f: _on_signal(s, f))
 
     keepalive_counter = 0
-    while state_machine.execute():
+    while action_manager.execute(keepalive_counter % 10 == 0):
         try:
             if keepalive_counter % 4 == 0:
-                server_manager.broadcast_keepalive(int(keepalive_counter / 10), state_machine.get_state_name())
+                server_manager.broadcast_keepalive(int(keepalive_counter / 10), actions=action_manager.get_action_states())
             keepalive_counter += 1
             sleep(0.1)
 
         except KeyboardInterrupt:
             warning("User-triggered termination, stopping the server")
-            state_machine.transition(None, "stop")
+            break
         except Exception as ex:
             error("Server error: %s. Stopping the server" % ex)
-            state_machine.transition(None, "stop")
+            break
 
-    server_manager.broadcast_keepalive(int(keepalive_counter / 10), state_machine.get_state_name())
+    server_manager.broadcast_keepalive(int(keepalive_counter / 10))
 
     server_manager.stop_all()

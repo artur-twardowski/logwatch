@@ -2,21 +2,42 @@ server:
   socket-port: 2207
   stay-active: false
 
-  endpoints:
-    - type: "ssh"
-      # You will need to adjust these settings to match your setup.
-      address: 192.168.101.64
-      user: pi
+  actions:
+    - type: "subprocess"
+      # Will be started immediately
+      name: "stage1"
       command: |
-        echo "Remote machine: `uname -a`"
-        while true
-        do echo "Type something"
-           read d
-           >&1 echo "echo stdout: $d"
-           >&2 echo "echo stderr: $d"
-           sleep 0.2
-        done
+        echo "Simulated startup of stage 1"
+        sleep 1
+
+      # Will be started after stage1 is completed
+    - type: "subprocess"
+      name: "stage2"
+      await:
+        - completed: "stage1"
+      command: |
+        echo "Simulated startup of stage 2"
+        sleep 1
+
+    - type: "subprocess"
+      name: "stage3"
+      await:
+        - completed: "&0"
+      command: |
+        echo "Simulated shutdown"
+
+  endpoints:
+    - type: "subprocess"
       register: '0'
+      await:
+        - completed: "stage2"
+      command: |
+        S=""
+        while [ "$S" != "exit" ]
+        do echo "Type \"exit\" to terminate this endpoint"
+           read S
+           echo "echo stdout: $S"
+        done
 
 views:
   main:
@@ -44,7 +65,7 @@ views:
         foreground-color: none
         enabled: true
 
-    line-format: "{format:default}{endpoint-symbol} {watch-symbol} {seq:_6} {time}\u2503 {format:default}{data}"
+    line-format: "{format:default}{endpoint-symbol} {watch-symbol} {seq:_6} {time:8}\u2503 {format:default}{data}"
     filtered: false
     max-held-lines: 5000
 
