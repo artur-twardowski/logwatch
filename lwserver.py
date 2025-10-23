@@ -34,7 +34,7 @@ class StartupShutdownState:
         if "command" in action:
             self._subprocess = SubprocessCommunication(action["command"],
                                                        SYSTEM_ENDPOINT,
-                                                       self._server_manager)
+                                                       lambda e, f, d: self._server_manager.broadcast_data(e, f, d))
             self._subprocess.set_command_finished_callback(
                 lambda: self._on_subprocess_finished())
             self._subprocess.run()
@@ -246,7 +246,7 @@ if __name__ == "__main__":
     separators = {}
 
     for endpoint, rule_name in config.event_separation_rules.items():
-        separators[endpoint] = create_separator(rule_name, lambda fd, data: server_manager.broadcast_data(endpoint, fd, data))
+        separators[endpoint] = create_separator(rule_name, lambda fd, data, e=endpoint: server_manager.broadcast_data(e, fd, data))
 
 
     if config.socket_port is not None:
