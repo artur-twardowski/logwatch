@@ -159,6 +159,7 @@ class ActionManager:
         self._preconditions[name] = preconditions
 
         if name not in self._separators:
+            warning("No separator defined for %s, falling back to by-newline" % name)
             self._separators[name] = ByNewlineSeparator({"trim": True}, lambda f, d, a=name: self._default_separator_cb(a, f, d))
 
     def get(self, action_name):
@@ -262,5 +263,5 @@ if __name__ == "__main__":
             break
 
     server_manager.broadcast_keepalive(int(keepalive_counter / 10))
-
     server_manager.stop_all()
+    info("Server stopped")

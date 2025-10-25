@@ -85,11 +85,12 @@ class Configuration:
                 self._process_action_node(endpoint, name)
                 self.endpoint_registers[register] = name
 
-                self.event_separation_rules[endpoint['register']] = endpoint.get('event-separation', {'method': 'by-newline'})
+                self.event_separation_rules[name] = endpoint.get('event-separation', {'method': 'by-newline'})
             for action in data['server'].get('actions', []):
                 lw_assert("type" in action, "Action type must be provided")
                 lw_assert("name" in action, "Action name must be provided")
 
                 self._process_action_node(action, action['name'])
+                self.event_separation_rules[name] = action.get('event-separation', {'method': 'by-newline'})
 
 
