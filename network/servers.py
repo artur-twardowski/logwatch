@@ -24,6 +24,7 @@ class GenericTCPServer:
         self._listen_thread.start()
 
     def stop(self):
+        info("Stopping server listening at %s:%s" % (self._address or "", self._port))
         self._active = False
         self._listen_thread.join()
 

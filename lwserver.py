@@ -202,9 +202,17 @@ class ActionManager:
     def get_action_states(self):
         return self._action_states_to_publish
 
+    def stop(self):
+        for action_name, action_state in self._actions.items():
+            if action_state == self.STATE_AWAITING:
+                self._actions[action_name] = self.STATE_FINISHED
+            elif action_state == self.STATE_RUNNING:
+                info("%s: terminating" % action_name)
+                self._actions[action_name].stop()
 
-def _on_signal(sig, frame):
-    raise KeyboardInterrupt
+
+def _on_signal(sig, frame, action_manager: ActionManager):
+    action_manager.stop()
 
 
 if __name__ == "__main__":
@@ -245,7 +253,7 @@ if __name__ == "__main__":
         actions_to_endpoints[action_name] = endpoint_register
 
     for sig in [signal.SIGINT, signal.SIGTERM]:
-        signal.signal(sig, lambda s, f: _on_signal(s, f))
+        signal.signal(sig, lambda s, f: _on_signal(s, f, action_manager))
 
     keepalive_counter = 0
     while action_manager.execute(keepalive_counter % 10 == 0):
