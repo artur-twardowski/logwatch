@@ -158,7 +158,10 @@ if __name__ == "__main__":
         interact.on_send_stdin(lambda register, data: send_to_stdin(client, register, data))
         interact.on_set_marker(lambda: client.send_enc({"type": "set-marker"}))
 
-        signal.signal(signal.SIGWINCH, lambda s, f: term.notify_resized())
+        signal.signal(signal.SIGWINCH, lambda s, f: term.request_terminal_size())
+
+        term.set_resize_cb(lambda r, c: console_output.print_message("Terminal resized: %d, %d" % (r, c)))
+        term.request_terminal_size()
 
         while app_active:
             try:

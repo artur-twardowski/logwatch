@@ -101,11 +101,22 @@ class InteractiveModeContext:
     def get_default_endpoint(self):
         return self._default_endpoint
 
+    def _format_displayable(self, data):
+        result = ""
+        for ch in data:
+            if ch == "\x01":
+                result += "<"
+            elif ch == "\x02":
+                result += ">"
+            else:
+                result += ch
+        return result
+
     def get_user_input_string(self):
         if self._input_mode == self.PREDICATE_MODE:
-            return SYM_PREDICATE_MODE_PROMPT + self._command_buffer
+            return SYM_PREDICATE_MODE_PROMPT + self._format_displayable(self._command_buffer)
         elif self._input_mode == self.TEXT_INPUT_MODE:
-            return self._prompt + self._text_input_buffer
+            return self._prompt + self._format_displayable(self._text_input_buffer)
         elif self._input_mode == self.MULTI_INPUT_MODE:
             count = len(self._subprompts)
             arrow = " "
@@ -124,6 +135,7 @@ class InteractiveModeContext:
                     ansi_format(self._config.colors.empty_placeholder_bg,
                                 self._config.colors.empty_placeholder_fg),
                     placeholder, len(placeholder))
+            disp_value = self._format_displayable(disp_value)
 
             return "%s | %c%s%s" % (self._prompt, arrow, self._subprompts[self._buf_index], disp_value)
         elif self._input_mode == self.MESSAGE_MODE:
@@ -393,13 +405,20 @@ class InteractiveModeContext:
         else:
             return ""
 
+    def _remove_last_key(self, data):
+        last_char = len(data) - 1
+        if data[last_char] == "\x02":
+            while data[last_char] != "\x01":
+                last_char -= 1
+        return data[0:last_char]
+
     def _on_backspace(self):
         if isinstance(self._text_input_buffer, list):
             if len(self._text_input_buffer[self._buf_index]) > 0:
-                self._text_input_buffer[self._buf_index] = self._text_input_buffer[self._buf_index][:-1]
+                self._text_input_buffer[self._buf_index] = self._remove_last_key(self._text_input_buffer[self._buf_index])
         else:
             if len(self._text_input_buffer) > 0:
-                self._text_input_buffer = self._text_input_buffer[:-1]
+                self._text_input_buffer = self._remove_last_key(self._text_input_buffer)
 
     def _on_input(self, content):
         if isinstance(self._text_input_buffer, list):
@@ -408,18 +427,14 @@ class InteractiveModeContext:
             self._text_input_buffer += content
 
     def _read_key_common(self, key):
-        if key == "<BS>":
+        if key == TerminalRawMode.KEY_BACKSPACE:
             self._on_backspace()
         elif key == "<Space>":
             self._on_input(" ")
-        elif key == "<LT>":
-            self._on_input("<")
-        elif key == "<GT>":
-            self._on_input(">")
-        elif key == "<ESC>":
+        elif key == TerminalRawMode.KEY_ESC:
             self._input_mode = self.PREDICATE_MODE
             self._reset_command_buffer()
-        elif key == "<Enter>":
+        elif key == TerminalRawMode.KEY_ENTER:
             self._handle_command()
         else:
             return False
@@ -430,19 +445,19 @@ class InteractiveModeContext:
             self._text_input_buffer += key
 
     def _read_key_multi_input(self, key):
-        if key in ["<Up>"]:
+        if key in [TerminalRawMode.KEY_UP_ARROW]:
             if self._buf_index > 0:
                 self._buf_index -= 1
-        elif key in ["<Down>"]:
+        elif key in [TerminalRawMode.KEY_DOWN_ARROW]:
             if self._buf_index < len(self._subprompts) - 1:
                 self._buf_index += 1
         elif not self._read_key_common(key):
             self._text_input_buffer[self._buf_index] += key
 
     def _read_key_message(self, key):
-        if key in ["<Enter>", "<ESC>"]:
-            self._input_mode = self.PREDICATE_MODE
-            self._reset_command_buffer()
+        self._input_mode = self.PREDICATE_MODE
+        self._reset_command_buffer()
+        self._read_key_predicate_input(key)
 
     def read_key(self, term: TerminalRawMode):
         key = term.read_key()
