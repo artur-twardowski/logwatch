@@ -5,6 +5,7 @@ from view.interactive_mode import InteractiveModeContext
 from collections import deque
 from utils import info, warning
 from utils import TerminalRawMode
+from utils import create_progress_bar, text_window
 import common
 
 
@@ -23,6 +24,8 @@ class ConsoleOutput:
         self._drop_newest_lines = False
         self._status_line_req_update = True
         self._server_state = ""
+        self._endpoints = {}
+        self._other_actions = {}
 
     def set_max_held_lines(self, size):
         if size is not None:
@@ -75,9 +78,6 @@ class ConsoleOutput:
         while len(self._held_lines) >= self._max_held_lines:
             if not self._held_lines_overflow:
                 self._held_lines_overflow = True
-                warning("Some lines have been dropped, only %s %d will be displayed after resuming" % (
-                    "first" if self._drop_newest_lines else "last",
-                    self._max_held_lines))
 
             if self._drop_newest_lines:
                 drop_line = True
@@ -105,6 +105,11 @@ class ConsoleOutput:
             "fd": fd
         })
 
+    def notify_active_actions(self, endpoints, other_actions):
+        self._endpoints = endpoints
+        self._other_actions = other_actions
+        self.notify_status_line_changed()
+
     def pause(self):
         self._pause = True
 
@@ -128,49 +133,91 @@ class ConsoleOutput:
             data = self._held_lines.popleft()
             self._print_line(data)
 
+    def _get_endpoint_style(self, state, is_default):
+        colors = self._config.colors
+        STYLES = [
+            (colors.awaiting_endpoint_bg, colors.awaiting_endpoint_fg),
+            (colors.running_endpoint_bg, colors.running_endpoint_fg),
+            (colors.finished_endpoint_bg, colors.finished_endpoint_fg)
+        ]
+        result = STYLES[state]
+        if is_default:
+            result = (colors.default_endpoint_bg, colors.default_endpoint_fg)
+        return ansi_format1(result)
+
+    def _write_register(self, width, prefix, reg):
+        if width >= 2:
+            self._terminal.write(prefix + reg)
+            if width == 3:
+                self._terminal.write(" ")  # Extra space for readability
+        else:
+            self._terminal.write(reg)
+
     def render_status_line(self):
         colors = self._config.colors
 
         status_line_style = ansi_format(colors.status_line_bg, colors.status_line_fg)
+        buffer_bar_style = ansi_format(colors.buffer_bar_bg, colors.buffer_bar_fg)
 
         if self._status_line_req_update:
             self._terminal.reset_current_line(status_line_style)
 
-            if self._pause:
-                self._terminal.write("PAU ")
-            else:
-                self._terminal.write("RUN ", flush=False)
-            if self._config.filtered_mode:
-                self._terminal.write("FLT ", flush=False)
+            if self._interact.is_predicate_mode():
+                tokens = self._interact.get_user_input_string()
+                self._terminal.write(text_window(tokens, 9))
+                cursor_column = min(9, len(tokens) + 1)
 
-            changed_register = self._interact.get_modified_watch()
-            default_endpoint = self._interact.get_default_endpoint()
+                reg_width = 3
 
-            self._terminal.write("&%c " % default_endpoint)
-
-            for register, filter_data in self._formatter.get_filters().items():
-                if register == changed_register:
-                    self._terminal.set_format("5")
-
-                if self._config.watches[register].enabled:
-                    self._terminal.set_format(ansi_format1(filter_data.get()))
+                self._terminal.write(" | ")
+                if self._pause:
+                    self._terminal.set_format(buffer_bar_style)
+                    self._terminal.write(create_progress_bar(len(self._held_lines), self._max_held_lines, 4))
                 else:
-                    self._terminal.set_format(status_line_style)
+                    self._terminal.write(">>> ")
+                self._terminal.set_format(status_line_style)
+                if self._config.filtered_mode:
+                    self._terminal.write("F ")
 
-                self._terminal.write(repr_watch_register(register) + " ")
-                if register == changed_register:
-                    self._terminal.set_format("25")
+                if reg_width == 1:
+                    self._terminal.write("&")
 
-            self._terminal.set_format(status_line_style)
-            self._terminal.write(" ")
-            self._terminal.write(self._interact.get_user_input_string())
-            predicate_mode_help = self._interact.get_predicate_mode_help()
-            if predicate_mode_help != "":
-                self._terminal.write("  " + SYM_VERTICAL_THICK_BAR)
-                self._terminal.set_format(
-                    ansi_format(colors.pred_help_bg, colors.pred_help_fg))
-                self._terminal.write(predicate_mode_help + "\x1b[%dD" % (len(predicate_mode_help) + 3))
+                default_endpoint = self._interact.get_default_endpoint()
+
+                for register, (name, state) in self._endpoints.items():
+                    self._terminal.set_format(self._get_endpoint_style(state, default_endpoint == register))
+                    self._write_register(reg_width, "&", register)
+
+                self._terminal.set_format(status_line_style)
+                
+                n_other_actions = len(self._other_actions)
+                if n_other_actions > 0:
+                    self._write_register(reg_width, "&", "-")
+                    if n_other_actions > 1:
+                        self._terminal.write("(%d)" % n_other_actions)
+                self._terminal.write(' | ')
+
+                if reg_width == 1:
+                    self._terminal.write("'")
+
+                for register, filter_data in self._formatter.get_filters().items():
+                    if self._config.watches[register].enabled:
+                        self._terminal.set_format(ansi_format1(filter_data.get()))
+                    else:
+                        self._terminal.set_format(status_line_style)
+
+                    self._write_register(reg_width, "'", register)
+
+                self._terminal.set_format(status_line_style)
+                self._terminal.set_cursor_position(cursor_column)
+
+            else:
+                self._terminal.write(self._interact.get_user_input_string())
+            self._terminal.set_cursor_style(TerminalRawMode.CURSOR_BLINKING_BAR)
+            self._terminal.flush()
+
             self._status_line_req_update = False
+
 
     def notify_status_line_changed(self):
         self._status_line_req_update = True

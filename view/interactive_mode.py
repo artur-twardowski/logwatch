@@ -112,6 +112,9 @@ class InteractiveModeContext:
                 result += ch
         return result
 
+    def is_predicate_mode(self):
+        return self._input_mode == self.PREDICATE_MODE
+
     def get_user_input_string(self):
         if self._input_mode == self.PREDICATE_MODE:
             return SYM_PREDICATE_MODE_PROMPT + self._format_displayable(self._command_buffer)

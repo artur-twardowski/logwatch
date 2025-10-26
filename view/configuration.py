@@ -43,14 +43,30 @@ class Watch:
 
 class ColorsConfiguration:
     def __init__(self):
-        self.status_line_bg = resolve_color("x100")
+        self.status_line_bg = resolve_color("x012")
         self.status_line_fg = resolve_color("x554")
+
+        self.buffer_bar_bg = resolve_color("x023")
+        self.buffer_bar_fg = resolve_color("x045")
 
         self.pred_help_bg = -1
         self.pred_help_fg = resolve_color("x211")
 
         self.empty_placeholder_bg = -1
         self.empty_placeholder_fg = resolve_color("x322")
+
+        self.awaiting_endpoint_bg = resolve_color("x210")
+        self.awaiting_endpoint_fg = resolve_color("x440")
+
+        self.running_endpoint_bg = resolve_color("x031")
+        self.running_endpoint_fg = resolve_color("x000")
+
+        self.finished_endpoint_bg = resolve_color("x010")
+        self.finished_endpoint_fg = resolve_color("x333")
+
+        self.default_endpoint_bg = resolve_color("x003")
+        self.default_endpoint_fg = resolve_color("x540")
+
 
 class Configuration:
     DEFAULT_LINE_FORMAT = "{format:endpoint}{endpoint:8} {seq:6} {time} {data}"

@@ -123,6 +123,8 @@ def pad_right(string, char, size):
 def resolve_color(name: str):
     if name in COLOR_MAP:
         return COLOR_MAP[name]
+    elif isinstance(name, int):
+        return name
     elif len(name) == 4 and name[0] == 'x':
         CODE0 = ord('0')
         return 16 + 36 * (ord(name[1]) - CODE0) +\

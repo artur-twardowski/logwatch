@@ -124,13 +124,14 @@ class ActionManager:
     STATE_RUNNING = 1
     STATE_FINISHED = 2
 
-    def __init__(self, separators: dict, default_separator_cb: callable):
+    def __init__(self, separators: dict, default_separator_cb: callable, resolve_register_cb: callable):
         self._actions = {}
         self._action_states = {}
         self._action_states_to_publish = {}
         self._preconditions = {}
         self._separators = separators
         self._default_separator_cb = default_separator_cb
+        self._resolve_register_cb = resolve_register_cb
 
         self.STATE_NAMES = {
             self.STATE_AWAITING: "awaiting",
@@ -190,7 +191,11 @@ class ActionManager:
         debug_line = "Actions summary:"
         for action_name, state in self._action_states.items():
             state_s = self.STATE_NAMES.get(state)
-            self._action_states_to_publish[action_name] = state_s
+
+            self._action_states_to_publish[action_name] = {
+                "register": self._resolve_register_cb(action_name),
+                "state": state
+            }
             debug_line += " %s:%s" % (action_name, state_s)
             if state == self.STATE_FINISHED:
                 finished_actions += 1
@@ -243,7 +248,8 @@ if __name__ == "__main__":
     action_manager = ActionManager(
         separators=separators,
         default_separator_cb=lambda action, fd, data:
-            server_manager.broadcast_data(actions_to_endpoints.get(action, '-'), action, fd, data))
+            server_manager.broadcast_data(actions_to_endpoints.get(action, '-'), action, fd, data),
+            resolve_register_cb=lambda action: actions_to_endpoints.get(action, '-'))
 
     for action_name, action_config in config.actions.items():
         action_manager.register(action_name, action_config.data, action_config.preconditions)

@@ -75,6 +75,37 @@ def special_key(data):
     return "\x01%s\x02" % data
 
 
+def create_progress_bar(position, maximum, width):
+    BLK_CHARS = ['\u258f', '\u258e', '\u258d', '\u258c', 
+                 '\u258b', '\u258a', '\u2589', '\u2588']
+
+    substeps = len(BLK_CHARS)
+    result = ""
+
+    segments = int(position * width * substeps / maximum)
+    while segments > 0:
+        if segments > substeps:
+            result += BLK_CHARS[-1]
+            segments -= substeps
+        else:
+            result += BLK_CHARS[segments - 1]
+            segments = 0
+
+    while len(result) < width:
+        result += " "
+
+    return result
+
+
+def text_window(content, max_size):
+    if len(content) < max_size:
+        return "%-*s" % (max_size, content)
+
+    first_char = len(content) - max_size + 1
+    if first_char < 0:
+        first_char = 0
+    return "%-*s" % (max_size, content[first_char:first_char + max_size - 1])
+
 class TerminalRawMode:
     IFLAG = 0
     OFLAG = 1
@@ -91,6 +122,8 @@ class TerminalRawMode:
     KEY_DOWN_ARROW = special_key("Down")
     KEY_LEFT_ARROW = special_key("Left")
     KEY_RIGHT_ARROW = special_key("Right")
+
+    CURSOR_BLINKING_BAR = '5'
 
     def __init__(self):
         self._fd = stdin.fileno()
@@ -276,20 +309,32 @@ class TerminalRawMode:
         return self._translation.get(result, result)
 
     def request_terminal_size(self):
-        self.write("\x1b[999;999f\x1b[6n")
+        self.write("\x1b[999;999f\x1b[6n", flush=True)
         self._expect_dimensions = True
 
-    def write(self, line, flush=True):
+    def write(self, line, flush=False):
         stdout.write("%s" % line)
         if flush:
-            stdout.flush()
+            self.flush()
+
+    def flush(self):
+        stdout.flush()
 
     def write_line(self, line):
         stdout.write("%s\r\n" % line)
-        stdout.flush()
+        self.flush()
 
     def set_format(self, format):
         stdout.write("\x1b[%sm" % format)
+
+    def set_cursor_position(self, col, row=None):
+        if row is None:
+            self.write("\x1b[%dG" % col)
+        else:
+            self.write("\x1b[%d;%dH" % (row, col))
+
+    def set_cursor_style(self, style):
+        self.write("\x1b[%c q" % style)
 
     def reset_current_line(self, format="0"):
         # Move to first column, reset formatting, clear till the end of line

@@ -44,7 +44,7 @@ views:
 
     line-format: "{format:default}{endpoint-symbol} {watch-symbol} {seq:_6} {time}\u2503 {format:default}{data}"
     filtered: false
-    max-held-lines: 5000
+    max-held-lines: 50
 
 layouts:
   tmux:

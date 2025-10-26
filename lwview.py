@@ -21,6 +21,18 @@ class TCPClient(GenericTCPClient):
         self._cout = cout
         self._recv_buffer = bytearray()
 
+    def _handle_keepalive_message(self, data):
+        #self._cout.print_message(str(data), "debug")
+        endpoints = {}
+        other_actions = {}
+        for action_name, action_data in data['actions'].items():
+            if action_data['register'] == '-':
+                if action_data['state'] != 2:
+                    other_actions[action_name] = action_data['state']
+            else:
+                endpoints[action_data['register']] = (action_name, action_data['state'])
+        self._cout.notify_active_actions(endpoints, other_actions)
+
     def on_data_received(self, recv_data):
         for byte in recv_data:
             if byte == 0:
@@ -34,7 +46,7 @@ class TCPClient(GenericTCPClient):
                         elif data['type'] == 'marker':
                             self._cout.print_marker(data)
                         elif data['type'] == 'keepalive':
-                            pass
+                            self._handle_keepalive_message(data)
 
                     except json.decoder.JSONDecodeError as err:
                         warning("Failed to parse JSON: %s: %s" % (err, data_recv_str))
