@@ -15,32 +15,6 @@ from server.service_manager import ServiceManager
 from server.separators import create_separator
 from server.separators.by_newline import ByNewlineSeparator
 
-class ActiveState:
-    def __init__(self, state_machine, subprocesses: list):
-        self._state_machine = state_machine
-        self._subprocesses = subprocesses
-        self._active_subprocesses = 0
-
-    def _run_subprocesses(self):
-        for _, subproc in self._subprocesses.items():
-            subproc.set_command_finished_callback(
-                lambda: self._state_machine.transition("active", "command-finished"))
-            subproc.run()
-            self._active_subprocesses += 1
-
-    def on_event(self, event_name):
-        if event_name == "begin":
-            self._run_subprocesses()
-
-        elif event_name == "command-finished":
-            self._active_subprocesses -= 1
-            if self._active_subprocesses == 0:
-                self._state_machine.transition("shutdown", "begin")
-
-        elif event_name == "stop":
-            for subproc in self._subprocesses:
-                subproc.stop()
-
 
 def read_args(args):
     arg_queue = Queue()
@@ -93,6 +67,9 @@ class TCPServer(GenericTCPServer):
         self._recv_buffer = bytearray()
         self._endpoints = endpoints
 
+    def set_stop_all_handler(self, callback: callable):
+        self._stop_all_cb = callback
+
     def on_data_received(self, addr, recv_data):
         for byte in recv_data:
             if byte == 0:
@@ -109,7 +86,8 @@ class TCPServer(GenericTCPServer):
                             endpoint = self._endpoints.get(data['endpoint-register'])
                             if endpoint is not None:
                                 endpoint.send(data['data'] + "\n")
-
+                        elif data['type'] == 'stop-all':
+                            self._stop_all_cb()
 
                     except json.decoder.JSONDecodeError as err:
                         error("Failed to parse JSON: %s: %s" % (err, data_recv_str))
@@ -123,6 +101,8 @@ class ActionManager:
     STATE_AWAITING = 0
     STATE_RUNNING = 1
     STATE_FINISHED = 2
+    STATE_FINISHED_WITH_ERROR = 3
+    STATE_TERMINATING = 4
 
     def __init__(self, separators: dict, default_separator_cb: callable, resolve_register_cb: callable):
         self._actions = {}
@@ -136,7 +116,9 @@ class ActionManager:
         self.STATE_NAMES = {
             self.STATE_AWAITING: "awaiting",
             self.STATE_RUNNING: "running",
-            self.STATE_FINISHED: "finished"
+            self.STATE_FINISHED: "finished",
+            self.STATE_FINISHED_WITH_ERROR: "finished-error",
+            self.STATE_TERMINATING: "terminating"
         }
 
     def _on_data(self, action, fd, data):
@@ -208,12 +190,14 @@ class ActionManager:
         return self._action_states_to_publish
 
     def stop(self):
-        for action_name, action_state in self._actions.items():
+        for action_name, action_state in self._action_states.items():
             if action_state == self.STATE_AWAITING:
-                self._actions[action_name] = self.STATE_FINISHED
+                info("Action %s has not been started yet, marking as finished" % action_name)
+                self._action_states[action_name] = self.STATE_FINISHED
             elif action_state == self.STATE_RUNNING:
-                info("%s: terminating" % action_name)
+                info("Terminating action %s" % action_name)
                 self._actions[action_name].stop()
+                self._action_states[action_name] = self.STATE_TERMINATING
 
 
 def _on_signal(sig, frame, action_manager: ActionManager):
@@ -235,11 +219,14 @@ if __name__ == "__main__":
         separators[action_name] = create_separator(rule_name, lambda fd, data, a=action_name:
             server_manager.broadcast_data(actions_to_endpoints.get(a, '-'), a, fd, data))
 
+    tcp_server = None
+
     if config.socket_port is not None:
-        server_manager.register(TCPServer(addr=config.socket_addr,
-                                          port=config.socket_port,
-                                          server_manager=server_manager,
-                                          endpoints=endpoint_registers))
+        tcp_server = TCPServer(addr=config.socket_addr,
+                               port=config.socket_port,
+                               server_manager=server_manager,
+                               endpoints=endpoint_registers)
+        server_manager.register(tcp_server)
 
     if not server_manager.run_all():
         error("Failed to start the server")
@@ -260,6 +247,8 @@ if __name__ == "__main__":
 
     for sig in [signal.SIGINT, signal.SIGTERM]:
         signal.signal(sig, lambda s, f: _on_signal(s, f, action_manager))
+
+    tcp_server.set_stop_all_handler(lambda: action_manager.stop())
 
     keepalive_counter = 0
     while action_manager.execute(keepalive_counter % 10 == 0):
