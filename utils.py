@@ -2,7 +2,7 @@ from sys import stdin, stdout
 import tty
 import termios
 
-VERSION = "0.2"
+VERSION = "0.3"
 log_level = 2
 
 
