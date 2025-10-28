@@ -1,4 +1,4 @@
-from utils import info, error, lw_assert
+from utils import fatal_error, warning, lw_assert
 from view.formatter import Style, resolve_color, Format
 import re
 import yaml
@@ -67,9 +67,22 @@ class ColorsConfiguration:
         self.default_endpoint_bg = resolve_color("x003")
         self.default_endpoint_fg = resolve_color("x540")
 
+        self.show_none_endpoint_bg = resolve_color("x012")
+        self.show_none_endpoint_fg = resolve_color("x000")
+
+        self.show_flt_endpoint_bg = resolve_color("x012")
+        self.show_flt_endpoint_fg = resolve_color("x530")
+
+        self.show_all_endpoint_bg = resolve_color("x012")
+        self.show_all_endpoint_fg = resolve_color("x050")
+
 
 class Configuration:
     DEFAULT_LINE_FORMAT = "{format:endpoint}{endpoint:8} {seq:6} {time} {data}"
+
+    SHOW_NONE = 0
+    SHOW_FILTERED = 1
+    SHOW_ALL = 2
 
     def __init__(self):
         self.host = "127.0.0.1"
@@ -80,12 +93,21 @@ class Configuration:
         self.line_format = None
         self.continued_line_format = None
         self.endpoint_styles = {}
+        self.show_endpoints = {}
+        self.default_endpoint_show = self.SHOW_ALL
         self.watches = {}
         self.commands = {}
-        self.filtered_mode = False
         self.max_held_lines = None
         self.default_endpoint = '0'
         self.colors = ColorsConfiguration()
+
+    def _show_mode_from_string(self, v):
+        MAPPING = {
+            "none": self.SHOW_NONE,
+            "filtered": self.SHOW_FILTERED,
+            "all": self.SHOW_ALL
+        }
+        return MAPPING[v]
 
     def _parse_endpoint_style_node(self, node):
         style = Style()
@@ -94,8 +116,8 @@ class Configuration:
                 continue
 
             if not isinstance(formats, dict):
-                error("Invalid format of formatting node")
-                exit(1)
+                fatal_error("Invalid format of formatting node")
+
             style.background_color[fd] = resolve_color(formats.get('background-color', "none"))
             style.foreground_color[fd] = resolve_color(formats.get('foreground-color', "white"))
         return style
@@ -113,6 +135,26 @@ class Configuration:
         watch.format.foreground_color['default'] = resolve_color(node.get('foreground-color', 'white'))
         return node["watch"], watch
 
+    def _parse_show_node(self, node):
+        if isinstance(node, dict):
+            for endpoint_register, view_mode in node.items():
+                try:
+                    if endpoint_register == "default":
+                        self.default_endpoint_show = self._show_mode_from_string(view_mode)
+                    else:
+                        if isinstance(endpoint_register, int):
+                            endpoint_register = str(endpoint_register)
+                        if endpoint_register.startswith('&') and len(endpoint_register) == 2:
+                            endpoint_register = endpoint_register[1]
+                        self.show_endpoints[endpoint_register] = self._show_mode_from_string(view_mode)
+                except KeyError:
+                    fatal_error("Invalid show mode: %s" % view_mode)
+        elif isinstance(node, str):
+            try:
+                self.default_endpoint_show = self._show_mode_from_string(node)
+            except KeyError:
+                fatal_error("Invalid show mode: %s" % view_mode)
+
     def add_watch(self, register, watch):
         self.watches[register] = watch
 
@@ -128,15 +170,21 @@ class Configuration:
         if filter_name in self.watches:
             self.watches[filter_name].enabled = False
 
+    def set_endpoint_show_mode(self, endpoint, mode):
+        self.show_endpoints[endpoint] = mode
+
+    def get_endpoint_show_mode(self, endpoint):
+        if endpoint in self.show_endpoints:
+            return self.show_endpoints[endpoint]
+        else:
+            return self.default_endpoint_show
+
     def read(self, filename, view_name="main"):
         with open(filename, 'r') as file:
             data = yaml.safe_load(file)
-            if 'views' not in data:
-                error("Configuration file does not have \"views\" section")
-                exit(1)
-            if view_name not in data['views']:
-                error("Configuration file does not have \"views\".\"%s\" section" % view_name)
-                exit(1)
+            lw_assert('views' in data, "Configuration file does not have \"views\" section")
+            lw_assert(view_name in data['views'],
+                      "Configuration file does not have configuration for view \"%s\"" % view_name)
 
             server_data = data.get("server", None)
             view_data = data['views'][view_name]
@@ -154,6 +202,15 @@ class Configuration:
                 self.continued_line_format = Format(view_data['continued-line-format'])
             else:
                 self.continued_line_format = self.line_format
+
+            if 'filtered' in view_data:
+                warning("\"filtered\" field is deprecated, use \"show\" instead")
+                if view_data['filtered']:
+                    self.default_endpoint_show = self.SHOW_FILTERED
+
+            if 'show' in view_data:
+                self._parse_show_node(view_data['show'])
+
             self.filtered_mode = view_data.get('filtered', False)
             self.max_held_lines = view_data.get('max-held-lines', None)
             self.default_endpoint = view_data.get('default-endpoint', self.default_endpoint)
@@ -169,7 +226,4 @@ class Configuration:
                 lw_assert("register" in command, "Missing \"register\" field in definition of command")
                 lw_assert("command" in command, "Missing \"command\" field in definition of command")
                 self.commands[command['register']] = command['command']
-
-
-
 

@@ -41,6 +41,11 @@ def error(message):
         print("\x1b[1;31mERROR: %s\x1b[0m" % message)
 
 
+def fatal_error(message):
+    error(message)
+    exit(1)
+
+
 def lw_assert(condition, message_on_error):
     if not condition:
         error(message_on_error)

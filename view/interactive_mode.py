@@ -80,6 +80,9 @@ class InteractiveModeContext:
                     "d": "eval",
                     "i": "eval",   # ;Ri Send data to stdin to indicated endpoint
                     "I": "eval",
+                    "n": "eval",
+                    "f": "eval",
+                    "a": "eval",
                     "\"": {}       # ;R"R Send data from indicated command register to indicated endpoint
             }
 
@@ -372,6 +375,15 @@ class InteractiveModeContext:
             # &Rd - Select register &R as a default endpoint register
             self._default_endpoint = command[1]
             self._enter_message_mode("Changed default endpoint to &%c" % self._default_endpoint)
+
+        elif self._command_matches(command, "&\x01n"):
+            self._config.set_endpoint_show_mode(command[1], Configuration.SHOW_NONE)
+
+        elif self._command_matches(command, "&\x01f"):
+            self._config.set_endpoint_show_mode(command[1], Configuration.SHOW_FILTERED)
+
+        elif self._command_matches(command, "&\x01a"):
+            self._config.set_endpoint_show_mode(command[1], Configuration.SHOW_ALL)
 
         elif self._command_matches_any(command, "&\x01i", "&\x01I"):
             # &Ri - Send data to endpoint &R.

@@ -62,7 +62,11 @@ class ConsoleOutput:
             data['watch-symbol'] = repr_watch_register(None)
             data['matches'] = []
 
-        if not self._config.filtered_mode or matched_register is not None:
+        show_mode = self._config.get_endpoint_show_mode(data['endpoint'])
+        print_line = (show_mode == Configuration.SHOW_ALL) or \
+                     (show_mode == Configuration.SHOW_FILTERED and matched_register is not None)
+
+        if print_line:
             first_row = True
             for content in data['data'].split('\n'):
                 data_row = data
@@ -145,12 +149,20 @@ class ConsoleOutput:
             result = (colors.default_endpoint_bg, colors.default_endpoint_fg)
         return ansi_format1(result)
 
-    def _write_register(self, width, prefix, reg):
+    def _write_register(self, width, prefix, reg, prefix_format=None, reg_format=None):
         if width >= 2:
-            self._terminal.write(prefix + reg)
+            if prefix_format is not None:
+                self._terminal.set_format(prefix_format)
+            self._terminal.write(prefix)
+
+            if reg_format is not None:
+                self._terminal.set_format(reg_format)
+            self._terminal.write(reg)
             if width == 3:
                 self._terminal.write(" ")  # Extra space for readability
         else:
+            if reg_format is not None:
+                self._terminal.set_format(reg_format)
             self._terminal.write(reg)
 
     def render_status_line(self):
@@ -158,6 +170,12 @@ class ConsoleOutput:
 
         status_line_style = ansi_format(colors.status_line_bg, colors.status_line_fg)
         buffer_bar_style = ansi_format(colors.buffer_bar_bg, colors.buffer_bar_fg)
+        FILTERING_FORMATS = {
+            Configuration.SHOW_NONE: ansi_format(colors.show_none_endpoint_bg, colors.show_none_endpoint_fg),
+            Configuration.SHOW_FILTERED: ansi_format(colors.show_flt_endpoint_bg, colors.show_flt_endpoint_fg),
+            Configuration.SHOW_ALL: ansi_format(colors.show_all_endpoint_bg, colors.show_all_endpoint_fg)
+        }
+
 
         if self._status_line_req_update:
             self._terminal.reset_current_line(status_line_style)
@@ -185,8 +203,9 @@ class ConsoleOutput:
                 default_endpoint = self._interact.get_default_endpoint()
 
                 for register, (name, state) in self._endpoints.items():
-                    self._terminal.set_format(self._get_endpoint_style(state, default_endpoint == register))
-                    self._write_register(reg_width, "&", register)
+                    self._write_register(reg_width, "&", register,
+                                         prefix_format=FILTERING_FORMATS[self._config.get_endpoint_show_mode(register)],
+                                         reg_format=self._get_endpoint_style(state, default_endpoint == register))
 
                 self._terminal.set_format(status_line_style)
                 

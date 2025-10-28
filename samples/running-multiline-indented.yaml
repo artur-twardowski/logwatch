@@ -5,20 +5,20 @@ server:
   endpoints:
     - type: "subprocess"
       command: |
+        X=0
         while true
-        do echo "Type something"
-           read d
-           >&1 echo "echo stdout: $d"
-           >&2 echo "echo stderr: $d"
-           sleep 0.2
+        do echo "Record header $X"
+           echo "  Today is `date`"
+           X=$(($X + 1))
+           sleep 0.3
         done
       register: '0'
+      event-separation:
+        method: 'by-indentation'
 
 views:
   main:
-    show:
-      0: all
-
+    show-endpoints: all
     styles:
       - endpoint: '0'
         stdout: # Data printed on stdout will have white text
@@ -42,7 +42,8 @@ views:
         foreground-color: none
         enabled: true
 
-    line-format: "{format:default}{endpoint-symbol} {watch-symbol} {seq:_6} {time}\u2503 {format:default}{data}"
+        line-format: "{format:default}{endpoint-symbol} {watch-symbol} {seq:_6} {time:8}\u2503 {format:default}{data}"
+    line-format: "{format:endpoint}{endpoint-symbol} {watch-symbol} {pad:6} {pad:8}\u2503 {format:default}{data}"
     filtered: false
     max-held-lines: 5000
 
