@@ -176,7 +176,6 @@ class ConsoleOutput:
             Configuration.SHOW_ALL: ansi_format(colors.show_all_endpoint_bg, colors.show_all_endpoint_fg)
         }
 
-
         if self._status_line_req_update:
             self._terminal.reset_current_line(status_line_style)
 
@@ -231,12 +230,14 @@ class ConsoleOutput:
                 self._terminal.set_cursor_position(cursor_column)
 
             else:
-                self._terminal.write(self._interact.get_user_input_string())
+                status_line_string = self._interact.get_user_input_string()
+
+                self._terminal.write(text_window(status_line_string, self._terminal.get_dimensions()[1] - 1))
+                self._terminal.set_cursor_position(len(status_line_string) + 1)
             self._terminal.set_cursor_style(TerminalRawMode.CURSOR_BLINKING_BAR)
             self._terminal.flush()
 
             self._status_line_req_update = False
-
 
     def notify_status_line_changed(self):
         self._status_line_req_update = True
