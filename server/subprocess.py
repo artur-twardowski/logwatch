@@ -58,7 +58,7 @@ class SubprocessCommunication:
         self._pid = None
 
         if self._on_command_finished is not None:
-            self._on_command_finished()
+            self._on_command_finished(exitcode)
 
     def stop(self):
         if self._pid is not None:

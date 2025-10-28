@@ -91,6 +91,6 @@ class Configuration:
                 lw_assert("name" in action, "Action name must be provided")
 
                 self._process_action_node(action, action['name'])
-                self.event_separation_rules[name] = action.get('event-separation', {'method': 'by-newline'})
+                self.event_separation_rules[action['name']] = action.get('event-separation', {'method': 'by-newline'})
 
 

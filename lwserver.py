@@ -7,7 +7,6 @@ from time import sleep
 from network.servers import GenericTCPServer
 from utils import pop_args, error, info, debug, set_log_level, inc_log_level, VERSION
 from utils import parse_yes_no_option, warning, lw_assert
-from common import SYSTEM_ENDPOINT
 from server.configuration import Configuration, ActionConfiguration, SubprocessConfig, SSHSessionConfig
 from server.subprocess import SubprocessCommunication
 from server.ssh_session import SSHSessionCommunication
@@ -124,7 +123,7 @@ class ActionManager:
     def _on_data(self, action, fd, data):
         self._separators[action].feed(fd, data)
 
-    def register(self, name, config, preconditions = []):
+    def register(self, name, config, preconditions=[]):
         if isinstance(config, SubprocessConfig):
             action = SubprocessCommunication(config.command, name, lambda a, f, d: self._on_data(a, f, d))
         elif isinstance(config, SSHSessionConfig):
@@ -158,14 +157,14 @@ class ActionManager:
                 result = result and (self._action_states[dep_name] == self.STATE_FINISHED)
         return result
 
-    def _notify_finished(self, action_name):
-        self._action_states[action_name] = self.STATE_FINISHED
+    def _notify_finished(self, action_name, exitcode):
+        self._action_states[action_name] = self.STATE_FINISHED if exitcode == 0 else self.STATE_FINISHED_WITH_ERROR
 
     def execute(self, print_debug_line=False):
         for action_name, action in self._actions.items():
             if self._can_be_run(action_name):
                 action = self._actions[action_name]
-                action.set_command_finished_callback(lambda a=action_name: self._notify_finished(a))
+                action.set_command_finished_callback(lambda exitcode, a=action_name: self._notify_finished(a, exitcode))
                 self._action_states[action_name] = self.STATE_RUNNING
                 action.run()
 
@@ -179,7 +178,7 @@ class ActionManager:
                 "state": state
             }
             debug_line += " %s:%s" % (action_name, state_s)
-            if state == self.STATE_FINISHED:
+            if state == self.STATE_FINISHED or state == self.STATE_FINISHED_WITH_ERROR:
                 finished_actions += 1
         debug_line += " finished_actions=%d/%d" % (finished_actions, len(self._action_states))
         if print_debug_line:
