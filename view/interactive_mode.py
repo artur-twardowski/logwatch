@@ -1,6 +1,7 @@
 from view.configuration import Configuration
 from view.formatter import ansi_format, get_default_register_format
 from utils import TerminalRawMode
+from predicate_input import PredicateInput
 
 SYM_ARROW_UP="\u2191"
 SYM_ARROW_DOWN="\u2193"
@@ -41,59 +42,332 @@ class InteractiveModeContext:
         self._default_endpoint = config.default_endpoint
         self._next_keys_in_predicate_mode = ""
 
-        self._syntax_tree = {
-            "a": {"p": "eval"},  # ap - analysis pause
-            "F": "eval",         # F - toggle filtered mode
-            "i": "eval",         # i - send data to stdin in to active endpoint
-            "I": "eval",
-            "m": "eval",
-            "p": "eval",         # p  - pause
-            "q": "eval",         # q - quit
-            "r": "eval",         # r - resume
-            "w": "eval",         # w - set watch in first free register
-            "'": {},             # '... - operation on watch register
-            "\"": {
-                "?": "eval"
-            },                   # "... - operation on command register
-            "&": {}              # &... - operation on endpoint register
-        }
-
-        for k in "0123456789":
-            self._syntax_tree[k] = "continue"
-
-        for k in self.AVAILABLE_REGISTERS:
-            self._syntax_tree["'"][k] = {
-                    "w": "eval",   # 'Rw Set a watch in register R
-                    "d": "eval",   # 'Rd Disable the watch
-                    "e": "eval",   # 'Re Enable the watch
-                    "x": "eval"    # 'Rx Delete the watch
+        if 0:
+            self._syntax_tree = {
+                "\"": {
+                    "?": "eval"
+                },                   # "... - operation on command register
+                "&": {}              # &... - operation on endpoint register
             }
 
-            self._syntax_tree["\""][k] = {
-                    "i": "eval",
-                    "I": "eval",
-                    "r": "eval",
-                    "s": "eval"
-            }
+            for k in "0123456789":
+                self._syntax_tree[k] = "continue"
 
-            self._syntax_tree["&"][k] = {
-                    "d": "eval",
-                    "i": "eval",   # ;Ri Send data to stdin to indicated endpoint
-                    "I": "eval",
-                    "n": "eval",
-                    "f": "eval",
-                    "a": "eval",
-                    "\"": {}       # ;R"R Send data from indicated command register to indicated endpoint
-            }
-
-            for k2 in self.AVAILABLE_REGISTERS:
-                self._syntax_tree['&'][k]["\""][k2] = {
-                    "i": "eval",
-                    "I": "eval",
-                    "r": "eval"
+            for k in self.AVAILABLE_REGISTERS:
+                self._syntax_tree["\""][k] = {
+                        "i": "eval",
+                        "I": "eval",
+                        "r": "eval",
+                        "s": "eval"
                 }
 
-        self._syntax_tree_ptr = self._syntax_tree
+                self._syntax_tree["&"][k] = {
+                        "\"": {}       # ;R"R Send data from indicated command register to indicated endpoint
+                }
+
+                for k2 in self.AVAILABLE_REGISTERS:
+                    self._syntax_tree['&'][k]["\""][k2] = {
+                        "i": "eval",
+                        "I": "eval",
+                        "r": "eval"
+                    }
+
+            self._syntax_tree_ptr = self._syntax_tree
+
+        tc_digits = PredicateInput.TokenClass(frozenset({ch for ch in "0123456789"}),
+                                              placeholder="<Digit>")
+        tc_registers = PredicateInput.TokenClass(frozenset({ch for ch in self.AVAILABLE_REGISTERS}),
+                                                 placeholder="<Register>")
+        tc_trigger_operation = PredicateInput.TokenClass(frozenset({"=", "+", "x"}), placeholder="<TriggerOp>")
+
+        self._predicate_input = PredicateInput()
+
+        self._predicate_input.register([tc_digits], PredicateInput.Continue)
+
+        self._predicate_input.register(['i'],
+            PredicateInput.Action(
+                description=("Send a line to the default endpoint",
+                             "Enters interactive input allowing to send a string to the default endpoint."),
+                callback1=lambda _: self._handle_send_stdin(self._default_endpoint, stay_in_input_mode=False)
+        ))
+
+        self._predicate_input.register(['I'],
+            PredicateInput.Action(
+                description=("Send continuously data to the default endpoint",
+                             "Enters interactive input allowing to send multiple strings to the default endpoint. "
+                             "Press ESC key to leave this mode"),
+                callback1=lambda _: self._handle_send_stdin(self._default_endpoint, stay_in_input_mode=True)
+        ))
+
+        self._predicate_input.register(['m'],
+            PredicateInput.Action(
+                description=("Insert marker",
+                             "Requests the server to emit a marker, effectively inserting it into the watched logs. "
+                             "This operation affects all the views connected to the server."),
+                callback1=lambda _: self._set_marker_cb()
+        ))
+
+        self._predicate_input.register(['P'],
+            PredicateInput.Action(
+                description=("Pause or resume",
+                             "Temporarily stops displaying new log events until resumed."),
+                callback1=lambda _: self._pause_cb(False)
+        ))
+
+        self._predicate_input.register(['p', 'a'],
+            PredicateInput.Action(
+                description=("Pause for analysis",
+                             "Temporarily stops displaying new log events until resumed."),
+                callback1=lambda _: self._pause_cb(True)
+        ))
+
+        self._predicate_input.register(['p', 'p'],
+            PredicateInput.Action(
+                description=("Pause",
+                             "Temporarily stops displaying new log events until resumed."),
+                callback1=lambda _: self._pause_cb(False)
+        ))
+
+        self._predicate_input.register(['q'],
+            PredicateInput.Action(
+                description=("Quit",
+                             "Quits the application."),
+                callback1=lambda _: self._quit_cb()
+        ))
+
+        self._predicate_input.register(['R'],
+            PredicateInput.Action(
+                description=("Record logs",
+                             "Records the logs from selected (armed) endpoints to a file."),
+                callback1=lambda _: self._print("error", "Not implemented")
+        ))
+
+        self._predicate_input.register(['w'],
+            PredicateInput.Action(
+                description=("Set a watch in first available register",
+                             "Resumes displaying new log events."),
+                callback1=lambda _: self._handle_set_watch(self._find_first_available_watch())
+        ))
+
+        self._predicate_input.register(["'", "'", tc_registers, tc_registers],
+                                       PredicateInput.Continue)
+
+        self._predicate_input.register(["&", "&", tc_registers, tc_registers],
+                                       PredicateInput.Continue)
+
+        self._predicate_input.register(["'", tc_registers, 'd'],
+            PredicateInput.Action(
+                description=("Disable a watch",
+                             "Disables a watch defined under register specified"),
+                callback2=lambda _, reg: self._set_watch_enable_cb(reg, False)
+        ))
+
+        self._predicate_input.register(["'", tc_registers, 'e'],
+            PredicateInput.Action(
+                description=("Enable a watch",
+                             "Enables a watch defined under register specified"),
+                callback2=lambda _, reg: self._set_watch_enable_cb(reg, True)
+        ))
+
+        self._predicate_input.register(["'", "'", tc_registers, ';', 'd'],
+            PredicateInput.Action(
+                description=("Disable multiple watches",
+                             "Disables watches at all the registers specified."),
+                callback4=lambda c, _, reg1, regs: self._set_watch_enable_cb(reg1 + regs, False)
+        ))
+
+        self._predicate_input.register(["'", "'", tc_registers, ';', 'e'],
+            PredicateInput.Action(
+                description=("Enable multiple watches",
+                             "Enables watches at all the registers specified."),
+                callback4=lambda c, _, reg1, regs: self._set_watch_enable_cb(reg1 + regs, True)
+        ))
+
+        self._predicate_input.register(["'", tc_registers, 'w'],
+            PredicateInput.Action(
+                description=("Set a watch in specified register",
+                             "Enters interactive input allowing to configure a watch under the register specified"),
+                callback1=lambda reg: self._handle_set_watch(reg),
+                callback2=lambda _, reg: self._handle_set_watch(reg)
+        ))
+
+        self._predicate_input.register(["'", tc_registers, 'x'],
+            PredicateInput.Action(
+                description=("Clear a watch register",
+                             "Clears a watch register."),
+                callback2=lambda _, reg: self._set_watch_cb(reg, ('', '', -1, -1))
+        ))
+
+        self._predicate_input.register(["&", tc_registers, 'i'],
+            PredicateInput.Action(
+                description=("Send a line to the indicated endpoint",
+                             "Enters interactive input allowing to send a string to the endpoint indicated."),
+                callback2=lambda _, reg: self._handle_send_stdin(reg, stay_in_input_mode=False)
+        ))
+
+        self._predicate_input.register(['&', tc_registers, 'I'],
+            PredicateInput.Action(
+                description=("Send continuously data to the indicated endpoint",
+                             "Enters interactive input allowing to send multiple strings to the endpoint indicated. "
+                             "Press ESC key to leave this mode"),
+                callback2=lambda _, reg: self._handle_send_stdin(reg, stay_in_input_mode=True)
+        ))
+
+        self._predicate_input.register(["&", tc_registers, 'a'],
+            PredicateInput.Action(
+                description=("Display all the log events from the endpoint",
+                             "Shows all the data emitted by the endpoint"),
+                callback2=lambda _, reg: self._config.set_endpoint_show_mode(reg, Configuration.SHOW_ALL)
+        ))
+
+        self._predicate_input.register(["&", "&", tc_registers, ';', 'a'],
+            PredicateInput.Action(
+                description=("Display all the log events from multiple endpoints",
+                             "Shows all the data emitted by the endpoints"),
+                callback4=lambda _1, _2, reg1, regs: self._config.set_endpoint_show_mode(reg1 + regs, Configuration.SHOW_ALL)
+        ))
+
+        self._predicate_input.register(["&", tc_registers, 'c'],
+            PredicateInput.Action(
+                description=("Enter concealed mode for the endpoint",
+                             "Concealed mode is similar to filtered mode, but all the discarded lines are held. "
+                             "Enabling or creating a watch will print all the held lines matching the regular expression. "),
+                callback2=lambda _, reg: self._print("error", "Not implemented yet") 
+        ))
+
+        self._predicate_input.register(["&", "&", tc_registers, ';', 'c'],
+            PredicateInput.Action(
+                description=("Enter concealed mode for multiple endpoints", ""),
+                callback4=lambda _1, _2, reg1, regs: self._print("error", "Not implemented yet") 
+        ))
+
+        self._predicate_input.register(["&", tc_registers, 'd'],
+            PredicateInput.Action(
+                description=("Select a default endpoint",
+                             "Selects a default endpoint to which the data will be sent using 'i'/'I' commands"),
+                callback2=lambda _, reg: self._set_default_endpoint(reg)
+        ))
+
+        self._predicate_input.register(["&", tc_registers, 'f'],
+            PredicateInput.Action(
+                description=("Entered filtered mode for endpoint",
+                             "Stops displaying any data from the endpoint, unless the event matches one of the active watches."),
+                callback2=lambda _, reg: self._config.set_endpoint_show_mode(reg, Configuration.SHOW_FILTERED)
+        ))
+        
+        self._predicate_input.register(["&", "&", tc_registers, ";", "f"],
+            PredicateInput.Action(
+                description=("Entered filtered mode for multiple endpoints", ""),
+                callback4=lambda _1, _2, reg1, regs: self._config.set_endpoint_show_mode(reg1 + regs, Configuration.SHOW_FILTERED)
+        ))
+
+        self._predicate_input.register(["&", tc_registers, 'n'],
+            PredicateInput.Action(
+                description=("Drop all the log events from the endpoint",
+                             "Stops displaying any data from the endpoint."),
+                callback2=lambda _, reg: self._config.set_endpoint_show_mode(reg, Configuration.SHOW_NONE)
+        ))
+
+        self._predicate_input.register(["&", "&", tc_registers, ";", "n"],
+            PredicateInput.Action(
+                description=("Drop all the log events from multiple endpoints", ""),
+                callback4=lambda _1, _2, reg1, regs: self._config.set_endpoint_show_mode(reg1 + regs, Configuration.SHOW_NONE)
+        ))
+
+        self._predicate_input.register(["&", tc_registers, 'R'],
+            PredicateInput.Action(
+                description=("Record data from selected endpoint",
+                             "Immediately starts recording the data from indicated endpoint to a file."),
+                callback2=lambda _, reg: self._print("error", "Not implemented")
+        ))
+
+        self._predicate_input.register(["&", "&", tc_registers, ";", 'R'],
+            PredicateInput.Action(
+                description=("Record data from multiple endpoints",
+                             "Immediately starts recording the data from indicated endpoints to a file."),
+                callback4=lambda _1, _2, reg1, regs: self._print("error", "Not implemented")
+        ))
+
+        self._predicate_input.register(["&", tc_registers, 'r'],
+            PredicateInput.Action(
+                description=("Arm the selected endpoint for recording",
+                             "Selects the endpoint to be recorded, but does not start recording yet. "
+                             "Recording can be started by pressing 'R'"),
+                callback2=lambda _, reg: self._print("error", "Not implemented")
+        ))
+
+        self._predicate_input.register(["&", "*", 'r'],
+            PredicateInput.Action(
+                description=("Arms all the endpoints for recording.",
+                             "Clears the selection of endpoints to record. After pressing 'R', all the endpoints "
+                             "will be recorded"),
+                callback2=lambda _, reg: self._print("error", "Not implemented")
+        ))
+
+        self._predicate_input.register(["&", "&", tc_registers, ';', 'r'],
+            PredicateInput.Action(
+                description=("Arm multiple endpoints for recording",
+                             "Selects the endpoints to be recorded, but does not start recording yet. "
+                             "Recording can be started by pressing 'R'"),
+                callback4=lambda _1, _2, reg1, regs: self._print("error", "Not implemented")
+        ))
+
+        self._predicate_input.register(['"', tc_registers, 'i'],
+            PredicateInput.Action(
+                description=("Send data from command register to default endpoint", ""),
+                callback2=lambda count, reg:
+                    self._assert_registers_set(self._default_endpoint, reg) and \
+                    self._handle_send_stdin(self._default_endpoint,
+                                            initial_content=self._config.commands.get(reg),
+                                            stay_in_input_mode=False)
+        ))
+
+        self._predicate_input.register(['"', tc_registers, 'I'],
+            PredicateInput.Action(
+                description=("Send data from command register to default endpoint", ""),
+                callback2=lambda count, reg:
+                    self._assert_registers_set(self._default_endpoint, reg) and \
+                    self._handle_send_stdin(self._default_endpoint,
+                                            initial_content=self._config.commands.get(reg),
+                                            stay_in_input_mode=True)
+        ))
+
+        self._predicate_input.register(['"', tc_registers, 'r'],
+            PredicateInput.Action(
+                description=("",""),
+                callback2=lambda count, reg:
+                    self._assert_registers_set(self._default_endpoint, reg) and \
+                    self._send_stdin_cb(self._default_endpoint, self._config.commands.get(reg))
+        ))
+
+        self._predicate_input.register(['"', tc_registers, 's'],
+            PredicateInput.Action(
+                description=("",""),
+                callback2=lambda count, reg:
+                    self._handle_set_command_register(reg)
+        ))
+
+        self._predicate_input.register(["t", "m", tc_trigger_operation],
+            PredicateInput.Action(
+                description=("Define a trigger on marker", ""),
+                callback2=lambda ctr, op: self._print("error", "Not implemented")
+        ))
+
+        self._predicate_input.register(["t", "'", tc_registers, tc_trigger_operation],
+            PredicateInput.Action(
+                description=("Define a trigger on watch", ""),
+                callback3=lambda ctr, reg, op: self._print("error", "Not implemented")
+        ))
+
+        self._predicate_input.register(["t", "'", "'", tc_registers, tc_registers], PredicateInput.Continue)
+
+        self._predicate_input.register(["t", "'", "'", tc_registers, ";", tc_trigger_operation],
+            PredicateInput.Action(
+                description=("Define a trigger on watch", ""),
+                callback5=lambda ctr, _, reg1, regs, op: self._print("error", "Not implemented")
+        ))
+                             
+        self._predicate_input_ctx = self._predicate_input.begin()
 
     def get_modified_watch(self):
         if "set_watch" in self._context and "register" in self._context:
@@ -120,7 +394,7 @@ class InteractiveModeContext:
 
     def get_user_input_string(self):
         if self._input_mode == self.PREDICATE_MODE:
-            return SYM_PREDICATE_MODE_PROMPT + self._format_displayable(self._command_buffer)
+            return SYM_PREDICATE_MODE_PROMPT + self._format_displayable(self._predicate_input_ctx.get_current_input())
         elif self._input_mode == self.TEXT_INPUT_MODE:
             return self._prompt + self._format_displayable(self._text_input_buffer)
         elif self._input_mode == self.MULTI_INPUT_MODE:
@@ -177,7 +451,6 @@ class InteractiveModeContext:
     def _reset_command_buffer(self):
         self._command_buffer = ""
         self._text_input_buffer = ""
-        self._syntax_tree_ptr = self._syntax_tree
 
     def _enter_text_input(self, command, prompt, initial_content="", **kwargs):
         self._command_buffer = command
@@ -191,7 +464,7 @@ class InteractiveModeContext:
         self._context = kwargs
 
     def _enter_multi_mode(self, command, prompt, fields: list, **kwargs):
-        self._command_buffer = command
+        self._command_buffer = self._predicate_input_ctx.get_current_input()
         self._input_mode = self.MULTI_INPUT_MODE
         self._prompt = prompt
         self._subprompts = [""] * len(fields)
@@ -248,7 +521,9 @@ class InteractiveModeContext:
                 self._enter_message_mode("Error: %s" % ex)
 
     def _handle_send_stdin(self, endpoint_register, initial_content = "", stay_in_input_mode=False):
+        self._command_buffer = self._predicate_input_ctx.get_current_input()
         if len(self._text_input_buffer) == 0:
+            self._command_buffer = self._predicate_input_ctx.get_current_input()
             self._enter_text_input(self._command_buffer, "Send: ", initial_content, register=endpoint_register, stay_in_input_mode=stay_in_input_mode)
         else:
             self._send_stdin_cb(self._context['register'], self._text_input_buffer)
@@ -260,6 +535,7 @@ class InteractiveModeContext:
                 self._enter_predicate_mode()
 
     def _handle_set_command_register(self, command_register):
+        self._command_buffer = self._predicate_input_ctx.get_current_input()
         if len(self._text_input_buffer) == 0:
             self._enter_text_input(self._command_buffer, "Set command in \"%c: " % command_register,
                                    initial_content=self._config.commands.get(command_register, ""),
@@ -298,39 +574,18 @@ class InteractiveModeContext:
             return False
         return True
 
+    def _set_default_endpoint(self, endpoint):
+        self._default_endpoint = endpoint
+
     def _handle_command(self):
         command = self._command_buffer
         command_params = self._text_input_buffer
-        counter_s = ""
-        while len(command) > 0 and command[0] >= '0' and command[0] <= '9':
-            counter_s += command[0]
-            command = command[1:]
-        if counter_s != "":
-            counter = int(counter_s)
-        else:
-            counter = 0
 
-        if self._command_matches(command, "p"):
-            self._pause_cb(False)
-        elif command == "ap":
-            self._pause_cb(True)
-        elif command == "r":
-            self._resume_cb()
-        elif command == "q":
-            self._quit_cb()
-        elif self._command_matches(command, "m"):
-            self._set_marker_cb()
-        elif command == "w":
+        if command == "w":
             register = self._find_first_available_watch()
             self._handle_set_watch(register)
         elif command[0] == "'" and command[2] == "w":
             self._handle_set_watch(command[1])
-        elif command[0] == "'" and command[2] == "x":
-            self._set_watch_cb(command[1], ('', '', -1, -1))
-        elif command[0] == "'" and command[2] == "d":
-            self._set_watch_enable_cb(command[1], False)
-        elif command[0] == "'" and command[2] == "e":
-            self._set_watch_enable_cb(command[1], True)
         elif self._command_matches_any(command, "i", "I"):
             self._handle_send_stdin(self._default_endpoint,
                                     stay_in_input_mode=command[0] == 'I')
@@ -371,54 +626,13 @@ class InteractiveModeContext:
             # "Rs - Set the content of command register "R
             self._handle_set_command_register(command[1])
 
-        elif self._command_matches(command, "&\x01d"):
-            # &Rd - Select register &R as a default endpoint register
-            self._default_endpoint = command[1]
-            self._enter_message_mode("Changed default endpoint to &%c" % self._default_endpoint)
-
-        elif self._command_matches(command, "&\x01n"):
-            self._config.set_endpoint_show_mode(command[1], Configuration.SHOW_NONE)
-
-        elif self._command_matches(command, "&\x01f"):
-            self._config.set_endpoint_show_mode(command[1], Configuration.SHOW_FILTERED)
-
-        elif self._command_matches(command, "&\x01a"):
-            self._config.set_endpoint_show_mode(command[1], Configuration.SHOW_ALL)
-
         elif self._command_matches_any(command, "&\x01i", "&\x01I"):
             # &Ri - Send data to endpoint &R.
             self._handle_send_stdin(command[1],
                                     stay_in_input_mode=(command[2] == 'I'))
 
-        else:
-            self._print("error", "Unhandled command: %s, %s, %s" % (counter, command, command_params))
-
     def _read_key_predicate_input(self, key):
-        if key in self._syntax_tree_ptr:
-            self._command_buffer += key
-            if isinstance(self._syntax_tree_ptr[key], dict):
-                self._syntax_tree_ptr = self._syntax_tree_ptr[key]
-            elif self._syntax_tree_ptr[key] == "continue":
-                pass  # Stay on the same level of parser tree
-            elif self._syntax_tree_ptr[key] == "eval":
-                self._handle_command()
-                if self._input_mode == self.PREDICATE_MODE:
-                    self._reset_command_buffer()
-        else:
-            self._reset_command_buffer()
-
-    def _build_predicate_mode_help(self):
-        result = ""
-        for k in sorted(self._syntax_tree_ptr.keys()):
-            result += k
-        self._next_keys_in_predicate_mode = result
-
-    def get_predicate_mode_help(self):
-        self._build_predicate_mode_help()
-        if self._input_mode == self.PREDICATE_MODE:
-            return self._next_keys_in_predicate_mode
-        else:
-            return ""
+        self._predicate_input_ctx.push(key)
 
     def _remove_last_key(self, data):
         last_char = len(data) - 1

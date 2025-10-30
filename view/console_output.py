@@ -115,7 +115,7 @@ class ConsoleOutput:
         self.notify_status_line_changed()
 
     def pause(self):
-        self._pause = True
+        self._pause = not self._pause
 
     def resume(self):
         self._pause = False

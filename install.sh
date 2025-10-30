@@ -2,7 +2,7 @@
 # Generated with ChatGPT, with some manual adjustments
 
 # List of Python script filenames to link
-SCRIPTS=("lwrun.py" "lwserver.py" "lwview.py")
+SCRIPTS=("lwrun.py" "lwserver.py" "lwview.py" "lwcmd.py")
 
 # Defaults
 PREFIX="lw"
@@ -110,5 +110,9 @@ for script in "${SCRIPTS[@]}"; do
         fi
     fi
 done
+
+if [[ $DRY_RUN -eq 0 ]]; then
+    ln -s external-modules/predicate-input/predicate_input predicate_input
+fi
 
 echo "Done."

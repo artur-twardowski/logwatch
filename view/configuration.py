@@ -170,8 +170,9 @@ class Configuration:
         if filter_name in self.watches:
             self.watches[filter_name].enabled = False
 
-    def set_endpoint_show_mode(self, endpoint, mode):
-        self.show_endpoints[endpoint] = mode
+    def set_endpoint_show_mode(self, endpoints, mode):
+        for endpoint in endpoints:
+            self.show_endpoints[endpoint] = mode
 
     def get_endpoint_show_mode(self, endpoint):
         if endpoint in self.show_endpoints:

@@ -115,9 +115,10 @@ def set_watch_callback(formatter: Formatter, config: Configuration, register: st
     watch.compile_regex()
 
 
-def set_watch_enable(config: Configuration, register: str, enabled: bool):
-    if register in config.watches:
-        config.watches[register].enabled = enabled
+def set_watch_enable(config: Configuration, registers: str, enabled: bool):
+    for register in registers:
+        if register in config.watches:
+            config.watches[register].enabled = enabled
 
 
 def send_to_stdin(client: TCPClient, register, data):

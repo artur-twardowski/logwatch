@@ -1,0 +1,3 @@
+[submodule "predicate-input"]
+	path = external-modules/predicate-input
+	url = https://github.com/artur-twardowski/predicate-input
