@@ -5,12 +5,19 @@ import json
 from network.clients import GenericTCPClient
 from time import sleep
 from queue import Queue
-from utils import pop_args, info, error, warning, set_log_level, VERSION
+from utils import pop_args, info, warning, set_log_level, VERSION
+from utils import counter_to_int
 from utils import TerminalRawMode
 from view.formatter import Formatter, resolve_color
 from view.configuration import Configuration, Watch
 from view.interactive_mode import InteractiveModeContext
 from view.console_output import ConsoleOutput
+import view.controllers.core as ctl_core
+import view.controllers.watches as ctl_watch
+import view.controllers.recording as ctl_rec
+import view.controllers.triggers as ctl_trig
+import view.controllers.endpoint_sending as ctl_ep_send
+import view.controllers.endpoint_show_modes as ctl_ep_show
 import signal
 
 
@@ -22,7 +29,6 @@ class TCPClient(GenericTCPClient):
         self._recv_buffer = bytearray()
 
     def _handle_keepalive_message(self, data):
-        #self._cout.print_message(str(data), "debug")
         endpoints = {}
         other_actions = {}
         for action_name, action_data in data['actions'].items():
@@ -142,39 +148,56 @@ if __name__ == "__main__":
     set_log_level(config.log_level)
 
     term = TerminalRawMode()
+    formatter = Formatter()
+    console_output = ConsoleOutput(config, formatter, term)
+    interact = InteractiveModeContext(config, formatter, console_output)
+    console_output.bind_interact(interact)
+
+    console_output.set_max_held_lines(config.max_held_lines)
+
+    ctl_core.install(
+        interact,
+        on_quit=lambda: quit_callback(),
+        on_set_marker=lambda: client.send_enc({"type": "set-marker"}),
+        on_pause=lambda analysis_mode: pause_callback(
+            console_output, analysis_mode),
+        on_feed=lambda counter: console_output.feed(counter_to_int(counter)))
+    ctl_watch.install(
+        interact, config,
+        on_set_watch=lambda register, params: set_watch_callback(
+            formatter, config, register, params),
+        on_watch_set_enable=lambda reg, enabled: set_watch_enable(
+            config, reg, enabled)
+    )
+    ctl_ep_send.install(
+        interact, config,
+        on_send_stdin=lambda register, data: send_to_stdin(
+            client, register, data))
+    ctl_ep_show.install(interact, config)
+    ctl_rec.install(interact)
+    ctl_trig.install(interact)
+
+    interact.on_command_buffer_changed(lambda: console_output.notify_status_line_changed())
+    interact.on_print_info(lambda fd, content: console_output.print_message(content, fd))
+
+    for endpoint_name, endpoint_style in config.endpoint_styles.items():
+        formatter.add_endpoint_style(endpoint_name, endpoint_style)
+
+    for watch_name, watch in config.watches.items():
+        formatter.add_watch_style(watch_name, watch.format)
+    
+    signal.signal(signal.SIGWINCH, lambda s, f: term.request_terminal_size())
+    term.set_resize_cb(lambda r, c: console_output.print_message("Terminal resized: %d, %d" % (r, c)))
+
+    term.enter_raw_mode()
+    term.request_terminal_size()
+
     try:
-        interact = InteractiveModeContext(config)
-        term.enter_raw_mode()
-
-        formatter = Formatter()
-        console_output = ConsoleOutput(config, formatter, term, interact)
-        console_output.set_max_held_lines(config.max_held_lines)
-
-        interact.on_command_buffer_changed(lambda buf: console_output.notify_status_line_changed())
-        interact.on_pause(lambda analysis_mode: pause_callback(console_output, analysis_mode))
-        interact.on_resume(lambda: resume_callback(console_output))
-        interact.on_set_watch(lambda register, params: set_watch_callback(formatter, config, register, params))
-        interact.on_enable_watch(lambda watch, enabled: set_watch_enable(config, watch, enabled))
-        interact.on_quit(lambda: quit_callback())
-        interact.on_print_info(lambda fd, content: console_output.print_message(content, fd))
-
-        for endpoint_name, endpoint_style in config.endpoint_styles.items():
-            formatter.add_endpoint_style(endpoint_name, endpoint_style)
-
-        for watch_name, watch in config.watches.items():
-            formatter.add_watch_style(watch_name, watch.format)
-
         app_active = True
         client = TCPClient(config, console_output)
         client.set_connection_loss_cb(lambda: disconnect_callback(console_output))
 
-        interact.on_send_stdin(lambda register, data: send_to_stdin(client, register, data))
-        interact.on_set_marker(lambda: client.send_enc({"type": "set-marker"}))
-
-        signal.signal(signal.SIGWINCH, lambda s, f: term.request_terminal_size())
-
-        term.set_resize_cb(lambda r, c: console_output.print_message("Terminal resized: %d, %d" % (r, c)))
-        term.request_terminal_size()
+        reconnect_wait_time = 0
 
         while app_active:
             try:
@@ -183,7 +206,7 @@ if __name__ == "__main__":
                         client.run()
                         client.send_enc({'type': 'get-late-join-records'})
                     except ConnectionRefusedError:
-                        sleep(0.1)
+                        sleep(0.01)
 
                 console_output.write_pending_lines()
                 console_output.render_status_line()

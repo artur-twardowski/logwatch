@@ -47,10 +47,14 @@ class GenericTCPClient:
             self._connection_loss_cb()
 
     def send(self, data):
-        if isinstance(data, str):
-            self._socket.sendall(bytes(data + '\0', 'utf-8'))
-        else:
-            self._socket.sendall(data)
+        try:
+            if isinstance(data, str):
+                self._socket.sendall(bytes(data + '\0', 'utf-8'))
+            else:
+                self._socket.sendall(data)
+        except BrokenPipeError:
+            pass
+
 
     def on_data_received(self, data):
         pass

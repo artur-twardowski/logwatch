@@ -111,6 +111,39 @@ def text_window(content, max_size):
         first_char = 0
     return "%-*s" % (max_size, content[first_char:first_char + max_size - 1])
 
+
+def remove_last_key(data):
+    if not isinstance(data, str):
+        data = str(data)
+    last_char = len(data) - 1
+    if last_char < 0:
+        return ""
+
+    if data[last_char] == "\x02":
+        while last_char >= 0 and data[last_char] != "\x01":
+            last_char -= 1
+    return data[0:last_char]
+
+
+def format_displayable(data):
+    result = ""
+    for ch in data:
+        if ch == "\x01":
+            result += "<"
+        elif ch == "\x02":
+            result += ">"
+        else:
+            result += ch
+    return result
+
+
+def counter_to_int(counter_s, default=1):
+    if counter_s == '':
+        return default
+    else:
+        return int(counter_s)
+
+
 class TerminalRawMode:
     IFLAG = 0
     OFLAG = 1

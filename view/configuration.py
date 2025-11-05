@@ -180,6 +180,15 @@ class Configuration:
         else:
             return self.default_endpoint_show
 
+    def set_command_register(self, register, value):
+        self.commands[register] = value
+
+    def get_command_register(self, register):
+        if register in self.commands:
+            return self.commands[register]
+        else:
+            return ""
+
     def read(self, filename, view_name="main"):
         with open(filename, 'r') as file:
             data = yaml.safe_load(file)
