@@ -2,7 +2,7 @@ from view.interactive_mode import InteractiveModeContext
 from view.configuration import Configuration
 from view.interactive_mode.input_views import ComplexInputView
 from view.interactive_mode.input_views import ComplexInputSubprompt
-from view.formatter import get_default_register_format
+from view.formatter import get_default_register_format, encode_color
 from common import AVAILABLE_REGISTERS
 
 
@@ -25,11 +25,11 @@ def _enter_watch_editor(interact: InteractiveModeContext,
         subprompts=[
             ComplexInputSubprompt("Regular expression", regex),
             ComplexInputSubprompt("Replacement", replacement),
-            ComplexInputSubprompt("Background color", bg_color),
-            ComplexInputSubprompt("Foreground color", fg_color)
+            ComplexInputSubprompt("Background color", encode_color(bg_color)),
+            ComplexInputSubprompt("Foreground color", encode_color(fg_color))
         ],
         on_confirm=lambda regex, replacement, bg_color, fg_color, r=register: (
-            set_watch_cb(r, (regex, replacement, bg_color, fg_color)),
+            set_watch_cb(r, (regex, replacement, bg_color, fg_color)) and \
             interact.return_to_predicate_mode()),
         on_cancel=lambda: interact.return_to_predicate_mode()))
 

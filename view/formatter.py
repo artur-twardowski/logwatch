@@ -2,6 +2,23 @@ import re
 from utils import debug, error
 
 COLOR_MAP = {
+    "black": 0,
+    "red": 1,
+    "green": 2,
+    "yellow": 3,
+    "blue": 4,
+    "magenta": 5,
+    "cyan": 6,
+    "lgrey": 7,
+    "grey": 8,
+    "lred": 9,
+    "lgreen": 10,
+    "lyellow": 11,
+    "lblue": 12,
+    "lmagenta": 13,
+    "lcyan": 14,
+    "white": 15,
+
     "red1": 16 + 1*36 + 0*6 + 0,
     "red2": 16 + 2*36 + 0*6 + 0,
     "red3": 16 + 3*36 + 0*6 + 0,
@@ -62,8 +79,6 @@ COLOR_MAP = {
     "magenta8": 16 + 5*36 + 3*6 + 5,
     "magenta9": 16 + 5*36 + 4*6 + 5,
 
-    "white": 231,
-    "black": 16,
     "grey0": 16,
     "grey1": 232,
     "grey2": 233,
@@ -92,6 +107,28 @@ COLOR_MAP = {
     "none": -1
 }
 
+def _build_color_map_rev(color_map: dict):
+    result = {}
+    for key, value in color_map.items():
+        if value not in result:
+            result[value] = key
+
+    for r in range(0, 6):
+        for g in range(0, 6):
+            for b in range(0, 6):
+                key = "x%d%d%d" % (r, g, b)
+                color_code = 36 * r + 6 * g + b + 16
+
+                if color_code not in result:
+                    result[color_code] = key
+    print("COLOR_REV:")
+    for k, v in sorted(result.items()):
+        print("DDD %3d -> %s" % (k, v))
+
+    return result
+
+COLOR_MAP_REV = _build_color_map_rev(COLOR_MAP)
+
 def get_default_register_format(register):
     DEFAULT_FORMATS = {
         '0': (COLOR_MAP['blue3'], COLOR_MAP['blue9']),
@@ -106,7 +143,7 @@ def get_default_register_format(register):
     if register in DEFAULT_FORMATS:
         return DEFAULT_FORMATS[register]
     else:
-        return DEFAULT_FORMATS['1']
+        return DEFAULT_FORMATS['0']
 
 def pad_left(string, char, size):
     while len(string) < size:
@@ -120,7 +157,7 @@ def pad_right(string, char, size):
     return string
 
 
-def resolve_color(name: str):
+def resolve_color(name: str, fail_if_not_resolved=False):
     if name in COLOR_MAP:
         return COLOR_MAP[name]
     elif isinstance(name, int):
@@ -134,7 +171,14 @@ def resolve_color(name: str):
         try:
             return int(name)
         except Exception:
-            return -1
+            if fail_if_not_resolved:
+                raise
+            else:
+                return -1
+
+
+def encode_color(color):
+    return COLOR_MAP_REV.get(color, color)
 
 
 class Style:

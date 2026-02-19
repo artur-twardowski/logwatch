@@ -102,14 +102,29 @@ def resume_callback(console_output):
     console_output.resume()
 
 
-def set_watch_callback(formatter: Formatter, config: Configuration, register: str, params: tuple):
+def set_watch_callback(interact: InteractiveModeContext,
+                       formatter: Formatter,
+                       config: Configuration,
+                       register: str,
+                       params: tuple):
     regex, replacement, background, foreground = params
     watch = Watch()
     watch.set_regex(regex)
     watch.replacement = replacement
     watch.enabled = True
-    watch.format.background_color = {"default": resolve_color(background)}
-    watch.format.foreground_color = {"default": resolve_color(foreground)}
+    try:
+        watch.format.background_color = {
+            "default": resolve_color(background, True)}
+    except Exception:
+        interact.show_message("Invalid background color specification: %s" % background)
+        return False
+
+    try:
+        watch.format.foreground_color = {
+            "default": resolve_color(foreground, True)}
+    except Exception:
+        interact.show_message("Invalid foreground color specification: %s" % foreground)
+        return False
 
     if regex == "":
         formatter.delete_watch_style(register)
@@ -119,6 +134,7 @@ def set_watch_callback(formatter: Formatter, config: Configuration, register: st
         config.add_watch(register, watch)
 
     watch.compile_regex()
+    return True
 
 
 def set_watch_enable(config: Configuration, registers: str, enabled: bool):
@@ -165,7 +181,7 @@ if __name__ == "__main__":
     ctl_watch.install(
         interact, config,
         on_set_watch=lambda register, params: set_watch_callback(
-            formatter, config, register, params),
+            interact, formatter, config, register, params),
         on_watch_set_enable=lambda reg, enabled: set_watch_enable(
             config, reg, enabled)
     )
