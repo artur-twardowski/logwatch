@@ -1,12 +1,15 @@
 from utils import fatal_error, warning, lw_assert
-from view.formatter import Style, resolve_color, Format
+from view.formatter import Style, resolve_color, Format, ansi_format
 import re
 import yaml
+
+re_replacement_format_spec = re.compile(r'({([A-Za-z0-9]+):([A-Za-z0-9]+)})')
 
 class Watch:
     def __init__(self):
         self.regex = None
         self.replacement = None
+        self.compiled_replacement = None
         self.format = Style()
         self.enabled = True
         self._prepared_regex = None
@@ -14,6 +17,23 @@ class Watch:
 
     def set_regex(self, regex):
         self.regex = regex
+
+    def set_replacement(self, replacement):
+        self.replacement = replacement
+        matches = re_replacement_format_spec.findall(replacement)
+        for match, key, value in matches:
+            fmt_tag = None
+            if key == "foreground":
+                fmt_tag = "\x1b[" + ansi_format(-1, resolve_color(value)) + "m"
+            elif key == "background":
+                fmt_tag = "\x1b[" + ansi_format(resolve_color(value), -1) + "m"
+            elif key == "format" and value == "reset":
+                fmt_tag = "\x1b[0m"
+
+            if fmt_tag is not None:
+                replacement = replacement.replace(match, fmt_tag)
+
+        self.compiled_replacement = replacement
 
     def compile_regex(self):
         try:
@@ -40,6 +60,7 @@ class Watch:
             return True
         else:
             return False
+
 
 class ColorsConfiguration:
     def __init__(self):
@@ -129,6 +150,7 @@ class Configuration:
         lw_assert(len(node["watch"]) == 1, "Watch register name must be a single character")
 
         watch.set_regex(node['regex'])
+        watch.set_replacement(node.get('replacement'))
         watch.compile_regex()
         watch.enabled = node.get('enabled', True)
         watch.format.background_color['default'] = resolve_color(node.get('background-color', 'none'))

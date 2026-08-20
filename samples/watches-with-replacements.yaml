@@ -1,0 +1,73 @@
+server:
+  socket-port: 2207
+  stay-active: false
+
+  endpoints:
+    - type: "subprocess"
+      command: |
+        X=1
+        while true
+        do echo "DEBUG [src.c:$X] content"
+           sleep 0.2
+           echo "INFO [src.c:$X] content"
+           sleep 0.2
+           echo "WARNING [src.c:$X] content"
+           sleep 0.2
+           echo "ERROR [src.c:$X] content"
+           sleep 0.2
+           echo "content without any particular format"
+           sleep 0.2
+           X=$(($X + 1))
+        done
+      register: '0'
+
+views:
+  main:
+    show-endpoints: all
+    styles:
+      - endpoint: '0'
+        stdout: # Data printed on stdout will have white text
+          foreground-color: grey15
+        stderr: # Data printed on stderr will have light red text
+          foreground-color: red7
+        stdin:  # Data sent over to stdin will have grey text
+          foreground-color: grey11
+      - watch: 'E'
+        regex: '^ERROR \[(.*)\] (.*)'
+        replacement: 'E {foreground:x310}\1{format:reset} | \2'
+        background-color: black
+        foreground-color: red5
+        enabled: true
+      - watch: 'W'
+        regex: '^WARNING \[(.*)\] (.*)'
+        replacement: 'W {foreground:x310}\1{format:reset} | \2'
+        background-color: black
+        foreground-color: yellow2
+        enabled: true
+      - watch: 'I'
+        regex: '^INFO \[(.*)\] (.*)'
+        replacement: 'I {foreground:x310}\1{format:reset} | \2'
+        background-color: black
+        foreground-color: white
+        enabled: true
+      - watch: 'D'
+        regex: '^DEBUG \[(.*)\] (.*)'
+        replacement: 'D {foreground:x310}\1{format:reset} | \2'
+        background-color: black
+        foreground-color: blue6
+        enabled: true
+
+    line-format: "{format:default}{endpoint-symbol} {watch-symbol} {seq:_6} {time:8}\u2503 {format:default}{data}"
+    continued-line-format: "{format:endpoint}{endpoint-symbol} {watch-symbol} {pad:6} {pad:8}\u2503 {format:default}{data}"
+    filtered: false
+    max-held-lines: 5000
+
+layouts:
+  tmux:
+    engine: tmux
+    run-server: true
+    layout: classic-horizontal
+    panels:
+      - view: main
+        size: 12
+

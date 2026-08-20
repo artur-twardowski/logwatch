@@ -53,19 +53,19 @@ class ConsoleOutput:
 
         if matched_register is not None:
             data['watch'] = matched_register
-            data['watch-symbol'] = repr_watch_register(matched_register)
-            data['matches'] = watch.matches
+            data['watch-symbol'] = repr_watch_register(data['watch'])
+            #data['matches'] = watch.matches
 
             # TODO: other condition should not be required
-            if watch.replacement is not None and watch.replacement != "":
-                repl = watch.replacement
-                for ix, match in enumerate(data['matches']):
+            if watch.compiled_replacement is not None and watch.compiled_replacement != "":
+                repl = watch.compiled_replacement
+                for ix, match in enumerate(watch.matches):
                     repl = repl.replace('\\%d' % (ix + 1), match)
                 data['data'] = repl
         else:
             data['watch'] = ""
             data['watch-symbol'] = repr_watch_register(None)
-            data['matches'] = []
+            #data['matches'] = []
 
         show_mode = self._config.get_endpoint_show_mode(data['endpoint'])
         print_line = (show_mode == Configuration.SHOW_ALL) or \

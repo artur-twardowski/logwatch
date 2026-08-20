@@ -110,7 +110,7 @@ def set_watch_callback(interact: InteractiveModeContext,
     regex, replacement, background, foreground = params
     watch = Watch()
     watch.set_regex(regex)
-    watch.replacement = replacement
+    watch.set_replacement(replacement)
     watch.enabled = True
     try:
         watch.format.background_color = {
