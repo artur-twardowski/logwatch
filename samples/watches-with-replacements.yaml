@@ -34,25 +34,24 @@ views:
           foreground-color: grey11
       - watch: 'E'
         regex: '^ERROR \[(.*)\] (.*)'
-        replacement: 'E {foreground:x310}\1{format:reset} | \2'
+        replacement: 'E <{1}> | {2}'
         background-color: black
         foreground-color: red5
         enabled: true
       - watch: 'W'
         regex: '^WARNING \[(.*)\] (.*)'
-        replacement: 'W {foreground:x310}\1{format:reset} | \2'
+        replacement: 'W <{1}> | {2}'
         background-color: black
         foreground-color: yellow2
         enabled: true
       - watch: 'I'
         regex: '^INFO \[(.*)\] (.*)'
-        replacement: 'I {foreground:x310}\1{format:reset} | \2'
+        replacement: 'I <{1}> | {2}'
         background-color: black
         foreground-color: white
         enabled: true
       - watch: 'D'
         regex: '^DEBUG \[(.*)\] (.*)'
-        replacement: 'D {foreground:x310}\1{format:reset} | \2'
         background-color: black
         foreground-color: blue6
         enabled: true

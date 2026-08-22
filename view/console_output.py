@@ -43,44 +43,46 @@ class ConsoleOutput:
         self._drop_newest_lines = value
 
     def _print_line(self, data):
-        matched_register = None
+        matched_registers = []
         for register, watch in self._config.watches.items():
             if watch.enabled and watch.match(data['data']):
-                matched_register = register
-                break
+                matched_registers.append(register)
 
         data['endpoint-symbol'] = repr_endpoint_register(data['endpoint'])
 
-        if matched_register is not None:
-            data['watch'] = matched_register
-            data['watch-symbol'] = repr_watch_register(data['watch'])
-            #data['matches'] = watch.matches
+        if len(matched_registers) > 0:
+            matched_register = matched_registers[0]
 
-            # TODO: other condition should not be required
-            if watch.compiled_replacement is not None and watch.compiled_replacement != "":
-                repl = watch.compiled_replacement
+            if watch.replacement is not None:
+                repl = watch.replacement
                 for ix, match in enumerate(watch.matches):
-                    repl = repl.replace('\\%d' % (ix + 1), match)
+                    repl = repl.replace('{%d}' % (ix + 1), match)
                 data['data'] = repl
-        else:
-            data['watch'] = ""
-            data['watch-symbol'] = repr_watch_register(None)
-            #data['matches'] = []
 
         show_mode = self._config.get_endpoint_show_mode(data['endpoint'])
         print_line = (show_mode == Configuration.SHOW_ALL) or \
-                     (show_mode == Configuration.SHOW_FILTERED and matched_register is not None)
+                     (show_mode == Configuration.SHOW_FILTERED and len(matched_registers) > 0)
+
+        for formatter in self._config.formatters:
+            data['data'] = formatter.generate_replacement(data['data'])
 
         if print_line:
-            first_row = True
-            for content in data['data'].split('\n'):
-                data_row = data
-                data_row['data'] = content
-                self._terminal.reset_current_line()
-                use_format = self._config.line_format if first_row else self._config.continued_line_format
-                self._terminal.write_line(self._formatter.format_line(use_format, data_row))
-                self._status_line_req_update = True
-                first_row = False
+            if len(matched_registers) == 0:
+                matched_registers = [None]
+
+            for matched_register in matched_registers:
+                data['watch'] = matched_register or ""
+                data['watch-symbol'] = repr_watch_register(matched_register)
+
+                first_row = True
+                for content in data['data'].split('\n'):
+                    data_row = data
+                    data_row['data'] = content
+                    self._terminal.reset_current_line()
+                    use_format = self._config.line_format if first_row else self._config.continued_line_format
+                    self._terminal.write_line(self._formatter.format_line(use_format, data_row))
+                    self._status_line_req_update = True
+                    first_row = False
 
     def _hold(self, data):
         drop_line = False

@@ -1,15 +1,15 @@
 from utils import fatal_error, warning, lw_assert
-from view.formatter import Style, resolve_color, Format, ansi_format
+from view.formatter import Style, resolve_color, Format, ansi_format, ansi_format1
 import re
 import yaml
 
-re_replacement_format_spec = re.compile(r'({([A-Za-z0-9]+):([A-Za-z0-9]+)})')
+re_fmt_tag_general = re.compile(r'({.*})')
+re_fmt_tag_format = re.compile(r'({format:([A-Za-z0-9]+)(:([A-Za-z0-9]+))?})')
 
 class Watch:
     def __init__(self):
         self.regex = None
         self.replacement = None
-        self.compiled_replacement = None
         self.format = Style()
         self.enabled = True
         self._prepared_regex = None
@@ -17,30 +17,14 @@ class Watch:
 
     def set_regex(self, regex):
         self.regex = regex
-
-    def set_replacement(self, replacement):
-        self.replacement = replacement
-        matches = re_replacement_format_spec.findall(replacement)
-        for match, key, value in matches:
-            fmt_tag = None
-            if key == "foreground":
-                fmt_tag = "\x1b[" + ansi_format(-1, resolve_color(value)) + "m"
-            elif key == "background":
-                fmt_tag = "\x1b[" + ansi_format(resolve_color(value), -1) + "m"
-            elif key == "format" and value == "reset":
-                fmt_tag = "\x1b[0m"
-
-            if fmt_tag is not None:
-                replacement = replacement.replace(match, fmt_tag)
-
-        self.compiled_replacement = replacement
-
-    def compile_regex(self):
         try:
             self._prepared_regex = re.compile(self.regex)
         except Exception:
             self._prepared_regex = None
             raise
+
+    def set_replacement(self, replacement):
+        self.replacement = replacement
 
     def is_regex_valid(self):
         return self._prepared_regex is not None
@@ -60,6 +44,128 @@ class Watch:
             return True
         else:
             return False
+
+def _compare_equals(op1, op2):
+    return op1 == op2
+
+
+class FormatterClass:
+    def __init__(self, parent):
+        self._parent = parent
+        self._default_format = Style()
+        self._conditions = []
+
+    def set_default_format(self, bg, fg):
+        self._default_format.set("default", bg, fg)
+
+    def set_conditional_format(self, formal_op1, operator, formal_op2, bg, fg):
+        COMPARING_FUNCTIONS={
+            "equals": _compare_equals
+        }
+        style = Style()
+        style.set("default", bg, fg)
+        lw_assert(operator in COMPARING_FUNCTIONS,
+                  "No such comparison function: %s" % operator)
+        self._conditions.append((formal_op1, formal_op2, COMPARING_FUNCTIONS.get(operator), style))
+        self._parent.register_operands(formal_op1, formal_op2)
+
+    def fill_in_default_colors(self):
+        for _, _, _, style in self._conditions:
+            for k, v in style.background_color.items():
+                if style.background_color[k] == -1:
+                    style.background_color[k] = self._default_format.background_color[k]
+            for k, v in style.foreground_color.items():
+                if style.foreground_color[k] == -1:
+                    style.foreground_color[k] = self._default_format.foreground_color[k]
+
+    def get_format(self, fetch_actual_op1: callable, fetch_actual_op2: callable):
+        for formal_op1, formal_op2, func, style in self._conditions:
+            if func(fetch_actual_op1(formal_op1), fetch_actual_op2(formal_op2)):
+                return style
+        return self._default_format
+
+class Formatter:
+    def __init__(self):
+        self.regex = None
+        self._prepared_regex = None
+        self.replacement = None
+        self.classes = {}
+        self.operands = set()
+
+    def set_regex(self, regex):
+        self.regex = regex
+        try:
+            self._prepared_regex = re.compile(self.regex)
+        except Exception:
+            self._prepared_regex = None
+            raise
+
+    def set_replacement(self, replacement):
+        self.replacement = replacement
+
+    def add_class(self, class_name):
+        self.classes[class_name] = FormatterClass(self)
+        return self.classes[class_name]
+
+    def register_operands(self, op1, op2):
+        for operand in [op1, op2]:
+            self.operands.add((operand, True if re_fmt_tag_general.match(operand) else False))
+
+    def _substitute(self, match: re.Match, in_str):
+        result = in_str
+        for ix, s in enumerate(match.groups()):
+            result = result.replace("{%d}" % (ix + 1), s)
+        for key, s in match.groupdict().items():
+            result = result.replace("{%s}" % key, s)
+        return result
+
+    def _dereference(self, operands, in_str):
+        result = {}
+        for operand, requires_dereference in operands:
+            if requires_dereference:
+                result[operand] = operand
+
+        for match in self._prepared_regex.finditer(in_str):
+            for operand in result.keys():
+                result[operand] = self._substitute(match, result[operand])
+
+        for operand, requires_dereference in operands:
+            if not requires_dereference:
+                result[operand] = operand
+        return result
+
+    def generate_replacement(self, input_line):
+        if not self._prepared_regex.match(input_line):
+            return input_line
+        result = self.replacement
+        dbg_result = ""
+        for match in self._prepared_regex.finditer(input_line):
+            dbg_result += str(match.groups()) + ", " + str(match.groupdict()) + " | "
+            result = self._substitute(match, result)
+
+        dereferenced_operands = self._dereference(self.operands, input_line)
+        classes = {}
+        for class_name, class_def in self.classes.items():
+            fmt = class_def.get_format(
+                fetch_actual_op1=lambda k: dereferenced_operands[k],
+                fetch_actual_op2=lambda k: dereferenced_operands[k])
+            classes[class_name] = (fmt.background_color["default"],
+                                   fmt.foreground_color["default"])
+
+        for match in re_fmt_tag_format.finditer(result):
+            lw_assert(len(match.groups()) == 4, "Invalid number of matches")
+            entire_tag, param1, _, param2 = match.groups()
+
+            fmt = None
+            if param1 == "class":
+                fmt = "\x1b[" + ansi_format1(classes[param2]) + "m"
+            elif param1 == "reset":
+                fmt = "\x1b[0m"
+
+            if fmt is not None:
+                result = result.replace(entire_tag, fmt)
+
+        return result
 
 
 class ColorsConfiguration:
@@ -118,6 +224,7 @@ class Configuration:
         self.default_endpoint_show = self.SHOW_ALL
         self.watches = {}
         self.commands = {}
+        self.formatters = []
         self.max_held_lines = None
         self.default_endpoint = '0'
         self.colors = ColorsConfiguration()
@@ -143,19 +250,42 @@ class Configuration:
             style.foreground_color[fd] = resolve_color(formats.get('foreground-color', "white"))
         return style
 
-    def _parse_watch_style_node(self, node):
+    def _parse_watch_node(self, node, register_field: str):
         watch = Watch()
         lw_assert("regex" in node, "Missing \"regex\" field in definition of watch")
-        lw_assert("watch" in node, "Missing \"watch\" field in definition of watch")
-        lw_assert(len(node["watch"]) == 1, "Watch register name must be a single character")
+        lw_assert(register_field in node, "Missing \"%s\" field in definition of watch" % register_field)
+        lw_assert(len(node[register_field]) == 1, "Watch register name must be a single character")
 
         watch.set_regex(node['regex'])
         watch.set_replacement(node.get('replacement'))
-        watch.compile_regex()
         watch.enabled = node.get('enabled', True)
-        watch.format.background_color['default'] = resolve_color(node.get('background-color', 'none'))
-        watch.format.foreground_color['default'] = resolve_color(node.get('foreground-color', 'white'))
-        return node["watch"], watch
+        watch.format.set("default",
+                         resolve_color(node.get('background-color', 'none')),
+                         resolve_color(node.get('foreground-color', 'white')))
+        return node[register_field], watch
+
+    def _parse_formatter_node(self, node):
+        formatter = Formatter()
+        lw_assert("regex" in node, "Missing \"regex\" field in definition of formatter")
+        formatter.set_regex(node.get("regex"))
+        formatter.set_replacement(node.get("replacement"))
+        for class_name, definitions in node.get("classes", {}).items():
+            cls = formatter.add_class(class_name)
+            for definition in definitions:
+                if "if" in definition:
+                    condition = definition["if"]
+                    lw_assert(
+                        isinstance(condition, list) and len(condition) == 3,
+                        "Definition of formatting condition must be a list consisting of 3 elements")
+                    cls.set_conditional_format(
+                        condition[0], condition[1], condition[2],
+                        resolve_color(definition.get('background-color', 'none')),
+                        resolve_color(definition.get('foreground-color', 'none')))
+                else:
+                    cls.set_default_format(
+                        resolve_color(definition.get('background-color', 'none')),
+                        resolve_color(definition.get('foreground-color', 'none')))
+        return formatter
 
     def _parse_show_node(self, node):
         if isinstance(node, dict):
@@ -251,8 +381,16 @@ class Configuration:
                 if 'endpoint' in style:
                     self.endpoint_styles[style['endpoint']] = self._parse_endpoint_style_node(style)
                 if 'watch' in style:
-                    watch_register, watch_node = self._parse_watch_style_node(style)
+                    # Obsolete format; use watches node instead
+                    watch_register, watch_node = self._parse_watch_node(style, "watch")
                     self.add_watch(watch_register, watch_node)
+
+            for watch in view_data.get('watches', []):
+                watch_register, watch_node = self._parse_watch_node(watch, "register")
+                self.add_watch(watch_register, watch_node)
+
+            for formatter in view_data.get('formatters', []):
+                self.formatters.append(self._parse_formatter_node(formatter))
 
             for command in view_data.get('commands', []):
                 lw_assert("register" in command, "Missing \"register\" field in definition of command")

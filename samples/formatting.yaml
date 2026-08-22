@@ -1,0 +1,73 @@
+server:
+  socket-port: 2207
+  stay-active: false
+
+  endpoints:
+    - type: "subprocess"
+      command: |
+        X=1
+        while true
+        do echo "DEBUG [src.c:$X] data $X"
+           sleep 0.2
+           echo "INFO [src.c:$X] data $X"
+           sleep 0.2
+           echo "WARNING [src.c:$X] data $X"
+           sleep 0.2
+           echo "ERROR [src.c:$X] data $X"
+           sleep 0.2
+           echo "content without any particular format $X"
+           sleep 0.2
+           X=$(($X + 1))
+        done
+      register: '0'
+
+views:
+  main:
+    show-endpoints: all
+    styles:
+      - endpoint: '0'
+        stdout: # Data printed on stdout will have white text
+          foreground-color: grey15
+        stderr: # Data printed on stderr will have light red text
+          foreground-color: red7
+        stdin:  # Data sent over to stdin will have grey text
+          foreground-color: grey11
+    watches:
+      - register: '0'
+        regex: 'data .*[357]'
+        background-color: blue2
+        enabled: true
+    formatters:
+      - regex: '(ERROR|WARNING|INFO|DEBUG) \[(.*)\] (.*)'
+        replacement: "{format:class:severity}{1}{format:class:location} [{2}] {format:reset}{format:class:content}{3}"
+        classes:
+          severity:
+            - {if: ["{1}", equals, "ERROR"], background-color: red6, foreground-color: black}
+            - {if: ["{1}", equals, "WARNING"], background-color: yellow3, foreground-color: black}
+            - {if: ["{1}", equals, "INFO"], background-color: white, foreground-color: black}
+            - {if: ["{1}", equals, "DEBUG"], background-color: blue8, foreground-color: black}
+            - foreground-color: black
+          location:
+            - background-color: black
+              foreground-color: grey12
+          content:
+            - {if: ["{1}", equals, "ERROR"], foreground-color: red6}
+            - {if: ["{1}", equals, "WARNING"], foreground-color: yellow3}
+            - {if: ["{1}", equals, "INFO"], foreground-color: white}
+            - {if: ["{1}", equals, "DEBUG"], foreground-color: blue8}
+            - background-color: black
+
+    line-format: "{format:default}{endpoint-symbol} {watch-symbol} {seq:_6} {time:8}\u2503 {format:default}{data}"
+    continued-line-format: "{format:endpoint}{endpoint-symbol} {watch-symbol} {pad:6} {pad:8}\u2503 {format:default}{data}"
+    filtered: false
+    max-held-lines: 5000
+
+layouts:
+  tmux:
+    engine: tmux
+    run-server: true
+    layout: classic-horizontal
+    panels:
+      - view: main
+        size: 12
+

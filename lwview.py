@@ -133,7 +133,6 @@ def set_watch_callback(interact: InteractiveModeContext,
         formatter.add_watch_style(register, watch.format)
         config.add_watch(register, watch)
 
-    watch.compile_regex()
     return True
 
 

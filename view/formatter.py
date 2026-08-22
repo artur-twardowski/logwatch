@@ -2,7 +2,7 @@ import re
 from utils import debug, error
 
 COLOR_MAP = {
-    "black": 0,
+    "black": 16,
     "red": 1,
     "green": 2,
     "yellow": 3,
@@ -199,6 +199,10 @@ class Style:
         bg_color = self.background_color.get(fd, self.DEFAULT_BG_COLOR)
         fg_color = self.foreground_color.get(fd, self.DEFAULT_FG_COLOR)
         return bg_color, fg_color
+
+    def set(self, fd="default", bg_color=-1, fg_color=-1):
+        self.background_color[fd] = bg_color
+        self.foreground_color[fd] = fg_color
 
 
 def ansi_format(bg_color, fg_color):
